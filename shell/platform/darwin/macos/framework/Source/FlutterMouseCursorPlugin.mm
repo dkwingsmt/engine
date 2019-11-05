@@ -19,7 +19,7 @@ static int const kSystemShapeNone = 0x334c4a4c;
 static int const kSystemShapeBasic = 0xf17aaabc;
 static int const kSystemShapeClick = 0xa8affc08;
 static int const kSystemShapeText = 0x1cb251ec;
-static int const kSystemShapeForbidden = 0x7fa3b767;
+static int const kSystemShapeForbidden = 0x350f9d68;
 static int const kSystemShapeGrab = 0x28b91f80;
 static int const kSystemShapeGrabbing = 0x6631ce3e;
 
