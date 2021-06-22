@@ -190,6 +190,15 @@ void _RespondToKeyData(Dart_NativeArguments args) {
   tonic::DartCallStatic(&RespondToKeyData, args);
 }
 
+void RespondToKeyDataMessage(Dart_Handle window, int response_id, bool handled) {
+  UIDartState::Current()->platform_configuration()->CompleteKeyDataMessageResponse(
+      response_id, handled);
+}
+
+void _RespondToKeyDataMessage(Dart_NativeArguments args) {
+  tonic::DartCallStatic(&RespondToKeyDataMessage, args);
+}
+
 Dart_Handle ToByteData(const fml::Mapping& buffer) {
   return tonic::DartByteData::Create(buffer.GetMapping(), buffer.GetSize());
 }
@@ -463,6 +472,21 @@ void PlatformConfiguration::CompleteKeyDataResponse(uint64_t response_id,
   callback(handled);
 }
 
+void PlatformConfiguration::CompleteKeyDataMessageResponse(uint64_t response_id,
+                                                    bool handled) {
+  if (response_id == 0) {
+    return;
+  }
+  auto it = pending_key_message_responses_.find(response_id);
+  FML_DCHECK(it != pending_key_message_responses_.end());
+  if (it == pending_key_message_responses_.end()) {
+    return;
+  }
+  KeyDataMessageResponse callback = std::move(it->second);
+  pending_key_message_responses_.erase(it);
+  callback(handled);
+}
+
 Dart_Handle ComputePlatformResolvedLocale(Dart_Handle supportedLocalesHandle) {
   std::vector<std::string> supportedLocales =
       tonic::DartConverter<std::vector<std::string>>::FromDart(
@@ -494,6 +518,7 @@ void PlatformConfiguration::RegisterNatives(
       {"PlatformConfiguration_respondToPlatformMessage",
        _RespondToPlatformMessage, 3, true},
       {"PlatformConfiguration_respondToKeyData", _RespondToKeyData, 3, true},
+      {"PlatformConfiguration_respondToKeyDataMessage", _RespondToKeyDataMessage, 3, true},
       {"PlatformConfiguration_render", Render, 3, true},
       {"PlatformConfiguration_updateSemantics", UpdateSemantics, 2, true},
       {"PlatformConfiguration_setIsolateDebugName", SetIsolateDebugName, 2,

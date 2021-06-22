@@ -13,7 +13,8 @@
 
 namespace flutter {
 
-// A byte stream representing a key message, to be sent to the framework.
+// A byte stream representing a key message that consists of zero or more
+// converted KeyData as well as the JSON representation of the native event.
 class KeyDataMessagePacket {
  public:
   // Build the key data packet by providing information.
@@ -21,7 +22,8 @@ class KeyDataMessagePacket {
   // The `events` is a C-array of KeyData of length `num_events`, which can be
   // nullptr and 0 respectively.
   //
-  // The `character` is a nullable C-string that ends with a '\0'.
+  // The `character` is a nullable C-string, representing the character of the
+  //  non-synthesized event of the message (if any).
   //
   // The `raw_event` is a byte stream of length `raw_event`, which must not be
   // nullptr and 0 respectively.
@@ -46,10 +48,10 @@ class KeyDataMessagePacket {
 
  private:
   // Packet structure:
-  // |  NumEvents   |
-  // |    Events    |
   // | CharDataSize |
   // |   CharData   |
+  // |  NumEvents   |
+  // |    Events    |
   // | RawEventSize |
   // | RawEventData |
 

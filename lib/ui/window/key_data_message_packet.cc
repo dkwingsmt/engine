@@ -32,10 +32,10 @@ KeyDataMessagePacket::KeyDataMessagePacket(
   if (raw_event == nullptr || raw_event_size == 0) {
     return;
   }
-  const size_t data_size = sizeof(uint64_t) // num_events
-      + num_events * sizeof(KeyData) // events
-      + sizeof(uint64_t) // char_size
+  const size_t data_size = sizeof(uint64_t) // char_size
       + char_size // character
+      + sizeof(uint64_t) // num_events
+      + num_events * sizeof(KeyData) // events
       + sizeof(uint64_t) // raw_event_size
       + raw_event_size; // raw_event
   data_.resize(data_size);
@@ -49,8 +49,8 @@ KeyDataMessagePacket::KeyDataMessagePacket(
   position = copy(position, character, char_size);
   position = copy(position, &num_events_64, sizeof(num_events_64));
   position = copy(position, events, num_events * sizeof(KeyData));
-  position = copy(position, &raw_event_size_64, sizeof(raw_event_size_64));
-  position = copy(position, raw_event, sizeof(raw_event_size_64));
+  position = copy(position, &raw_event_size, sizeof(raw_event_size));
+  position = copy(position, raw_event, raw_event_size);
   if (position != data_.data() + data_size) {
     data_.resize(0);
   }

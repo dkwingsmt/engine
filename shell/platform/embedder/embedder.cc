@@ -1649,15 +1649,15 @@ FlutterEngineResult FlutterEngineSendKeyMessage(FLUTTER_API_SYMBOL(FlutterEngine
   flutter::KeyData key_data[num_events];
   for (size_t event_index = 0; event_index < num_events; event_index += 1) {
     const FlutterKeyEvent* event = &message->events[event_index];
-    flutter::KeyData* data = &key_data[event_index];
-    key_data->Clear();
-    key_data->timestamp = (uint64_t)SAFE_ACCESS(event, timestamp, 0);
-    key_data->type = MapKeyEventType(
+    flutter::KeyData* datum = &key_data[event_index];
+    datum->Clear();
+    datum->timestamp = (uint64_t)SAFE_ACCESS(event, timestamp, 0);
+    datum->type = MapKeyEventType(
         SAFE_ACCESS(event, type, FlutterKeyEventType::kFlutterKeyEventTypeUp));
-    key_data->physical = SAFE_ACCESS(event, physical, 0);
-    key_data->logical = SAFE_ACCESS(event, logical, 0);
-    key_data->synthesized = SAFE_ACCESS(event, synthesized, false);
-    if (!key_data->synthesized) {
+    datum->physical = SAFE_ACCESS(event, physical, 0);
+    datum->logical = SAFE_ACCESS(event, logical, 0);
+    datum->synthesized = SAFE_ACCESS(event, synthesized, false);
+    if (!datum->synthesized) {
       if (found_nonsynthesized_event) {
         return kInvalidArguments;
       } else {
@@ -1678,6 +1678,9 @@ FlutterEngineResult FlutterEngineSendKeyMessage(FLUTTER_API_SYMBOL(FlutterEngine
   }
   auto packet = std::make_unique<flutter::KeyDataMessagePacket>(
     static_cast<flutter::KeyData*>(key_data), num_events, message_character, raw_event, raw_event_size);
+  if (!packet->valid()) {
+    return kInternalInconsistency;
+  }
 
   auto response = [callback, user_data](bool handled) {
     if (callback != nullptr)

@@ -493,6 +493,12 @@ Picture CreateGradientBox(Size size) {
   return baseRecorder.endRecording();
 }
 
+void _echoKeyMessageInfo(
+    int numEvents,
+    int rawEventSize,
+    int rawEvent8Bytes)
+  native 'EchoKeyMessageInfo';
+
 void _echoKeyEvent(
     int change,
     int timestamp,
@@ -530,6 +536,30 @@ void key_data_echo() async {
       data.synthesized,
     );
     return data.synthesized;
+  };
+  signalNativeTest();
+}
+
+// Echo the event data with `_echoKeyEvent`, and returns synthesized as handled.
+@pragma('vm:entry-point')
+void key_message_echo() async {
+  PlatformDispatcher.instance.onKeyDataMessage = (KeyDataMessage message) {
+    _echoKeyMessageInfo(
+      message.events.length,
+      message.rawEventData.lengthInBytes,
+      message.rawEventData.getUint64(0),
+    );
+    for (final KeyData data in message.events) {
+      _echoKeyEvent(
+        _serializeKeyEventType(data.type),
+        data.timeStamp.inMicroseconds,
+        data.physical,
+        data.logical,
+        data.character == null ? 0 : data.character!.codeUnitAt(0),
+        data.synthesized,
+      );
+    }
+    return message.events.isEmpty ? false : message.events[0].synthesized;
   };
   signalNativeTest();
 }

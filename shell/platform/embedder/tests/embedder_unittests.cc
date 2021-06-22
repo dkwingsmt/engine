@@ -771,7 +771,7 @@ TEST_F(EmbedderTest, CanRunInitializedEngine) {
 //------------------------------------------------------------------------------
 /// Test that an engine can be deinitialized.
 ///
-TEST_F(EmbedderTest, CaDeinitializeAnEngine) {
+TEST_F(EmbedderTest, CanDeinitializeAnEngine) {
   EmbedderConfigBuilder builder(
       GetEmbedderContext(EmbedderTestContextType::kSoftwareContext));
   builder.SetSoftwareRendererConfig();
@@ -1491,10 +1491,37 @@ TEST_F(EmbedderTest, KeyDataResponseIsCorrectlyInvoked) {
 
 TEST_F(EmbedderTest, KeyDataMessageIsCorrectlySerialized) {
   auto message_latch = std::make_shared<fml::AutoResetWaitableEvent>();
+
+  auto& context = GetEmbedderContext(EmbedderTestContextType::kSoftwareContext);
+  EmbedderConfigBuilder builder(context);
+  builder.SetSoftwareRendererConfig();
+  builder.SetDartEntrypoint("key_message_echo");
+
+  fml::AutoResetWaitableEvent ready;
+  context.AddNativeCallback(
+      "SignalNativeTest",
+      CREATE_NATIVE_ENTRY(
+          [&ready](Dart_NativeArguments args) { ready.Signal(); }));
+
+  uint64_t num_events;
+  uint64_t raw_event_size;
+  uint64_t raw_event_8_bytes;
+  context.AddNativeCallback("EchoKeyMessageInfo",
+                            CREATE_NATIVE_ENTRY([&](Dart_NativeArguments args) {
+    num_events = tonic::DartConverter<uint64_t>::FromDart(
+        Dart_GetNativeArgument(args, 0));
+    raw_event_size = tonic::DartConverter<uint64_t>::FromDart(
+        Dart_GetNativeArgument(args, 1));
+    raw_event_8_bytes = tonic::DartConverter<uint64_t>::FromDart(
+        Dart_GetNativeArgument(args, 2));
+
+    message_latch->Signal();
+  }));
+
   uint64_t echoed_char;
   FlutterKeyEvent echoed_event;
-
-  auto native_echo_event = [&](Dart_NativeArguments args) {
+  context.AddNativeCallback("EchoKeyEvent",
+                            CREATE_NATIVE_ENTRY([&](Dart_NativeArguments args) {
     echoed_event.type =
         UnserializeKeyEventKind(tonic::DartConverter<uint64_t>::FromDart(
             Dart_GetNativeArgument(args, 0)));
@@ -1510,45 +1537,26 @@ TEST_F(EmbedderTest, KeyDataMessageIsCorrectlySerialized) {
         tonic::DartConverter<bool>::FromDart(Dart_GetNativeArgument(args, 5));
 
     message_latch->Signal();
-  };
-
-  auto& context = GetEmbedderContext(EmbedderTestContextType::kSoftwareContext);
-  EmbedderConfigBuilder builder(context);
-  builder.SetSoftwareRendererConfig();
-  builder.SetDartEntrypoint("key_data_echo");
-  fml::AutoResetWaitableEvent ready;
-  context.AddNativeCallback(
-      "SignalNativeTest",
-      CREATE_NATIVE_ENTRY(
-          [&ready](Dart_NativeArguments args) { ready.Signal(); }));
-
-  context.AddNativeCallback("EchoKeyEvent",
-                            CREATE_NATIVE_ENTRY(native_echo_event));
+  }));
 
   auto engine = builder.LaunchEngine();
   ASSERT_TRUE(engine.is_valid());
   ready.Wait();
 
-  // A normal down event
-  const FlutterKeyEvent down_event_upper_a{
+  // A message with 3 events.
+  const FlutterKeyEvent events[] = {
+    // A normal down event
+    FlutterKeyEvent {
       .struct_size = sizeof(FlutterKeyEvent),
       .timestamp = 1,
       .type = kFlutterKeyEventTypeDown,
       .physical = 0x00070004,
       .logical = 0x00000000061,
-      .character = "A",
-      .synthesized = false,
-  };
-  FlutterEngineSendKeyEvent(
-      engine.get(), &down_event_upper_a, [](bool handled, void* user_data) {},
-      nullptr);
-  message_latch->Wait();
-
-  ExpectKeyEventEq(echoed_event, down_event_upper_a);
-  EXPECT_EQ(echoed_char, 0x41llu);
-
-  // A repeat event with multi-byte character
-  const FlutterKeyEvent repeat_event_wide_char{
+      .character = nullptr,
+      .synthesized = true,
+    },
+    // A repeat event with multi-byte character
+    FlutterKeyEvent {
       .struct_size = sizeof(FlutterKeyEvent),
       .timestamp = 1000,
       .type = kFlutterKeyEventTypeRepeat,
@@ -1556,17 +1564,9 @@ TEST_F(EmbedderTest, KeyDataMessageIsCorrectlySerialized) {
       .logical = 0x00000000062,
       .character = "∆",
       .synthesized = false,
-  };
-  FlutterEngineSendKeyEvent(
-      engine.get(), &repeat_event_wide_char,
-      [](bool handled, void* user_data) {}, nullptr);
-  message_latch->Wait();
-
-  ExpectKeyEventEq(echoed_event, repeat_event_wide_char);
-  EXPECT_EQ(echoed_char, 0x2206llu);
-
-  // An up event with no character, synthesized
-  const FlutterKeyEvent up_event{
+    },
+    // An up event with no character, synthesized
+    FlutterKeyEvent {
       .struct_size = sizeof(FlutterKeyEvent),
       .timestamp = 1000000,
       .type = kFlutterKeyEventTypeUp,
@@ -1574,20 +1574,65 @@ TEST_F(EmbedderTest, KeyDataMessageIsCorrectlySerialized) {
       .logical = 0x00000000063,
       .character = nullptr,
       .synthesized = true,
+    }
   };
-  FlutterEngineSendKeyEvent(
-      engine.get(), &up_event, [](bool handled, void* user_data) {}, nullptr);
-  message_latch->Wait();
+  const uint8_t data[10] = {0x1, 0x5, 0x2, 0x6, 0x3, 0x7, 0x4, 0x8, 0x9, 0xa};
 
-  ExpectKeyEventEq(echoed_event, up_event);
-  EXPECT_EQ(echoed_char, 0llu);
+  FlutterKeyMessage message1 {
+    .struct_size = sizeof(FlutterKeyMessage),
+    .num_events = 3,
+    .events = events,
+    .raw_event_size = sizeof(data) / sizeof(*data),
+    .raw_event = data,
+  };
+
+  FlutterEngineResult result = FlutterEngineSendKeyMessage(
+      engine.get(), &message1, [](bool handled, void* user_data) {},
+      nullptr);
+  EXPECT_EQ(result, kSuccess);
+
+  message_latch->Wait();
+  EXPECT_EQ(num_events, 3);
+  EXPECT_EQ(raw_event_size, 10);
+  EXPECT_EQ(raw_event_8_bytes, 0x105020603070408);
+
+  message_latch->Wait();
+  ExpectKeyEventEq(echoed_event, events[0]);
+  EXPECT_EQ(echoed_char, 0);
+
+  message_latch->Wait();
+  ExpectKeyEventEq(echoed_event, events[1]);
+  EXPECT_EQ(echoed_char, 0x2206llu);
+  echoed_char = 0;
+
+  message_latch->Wait();
+  ExpectKeyEventEq(echoed_event, events[2]);
+  EXPECT_EQ(echoed_char, 0);
+
+  // A message with no events.
+  FlutterKeyMessage message2 {
+    .struct_size = sizeof(FlutterKeyMessage),
+    .num_events = 0,
+    .events = nullptr,
+    .raw_event_size = sizeof(data) / sizeof(*data),
+    .raw_event = data,
+  };
+  result = FlutterEngineSendKeyMessage(
+      engine.get(), &message2, [](bool handled, void* user_data) {},
+      nullptr);
+  EXPECT_EQ(result, kSuccess);
+
+  message_latch->Wait();
+  EXPECT_EQ(num_events, 0);
+  EXPECT_EQ(raw_event_size, 10);
+
 }
 
 TEST_F(EmbedderTest, KeyDataMessageResponseIsCorrectlyInvoked) {
   auto& context = GetEmbedderContext(EmbedderTestContextType::kSoftwareContext);
   EmbedderConfigBuilder builder(context);
   builder.SetSoftwareRendererConfig();
-  builder.SetDartEntrypoint("key_data_echo");
+  builder.SetDartEntrypoint("key_message_echo");
   fml::AutoResetWaitableEvent ready;
   context.AddNativeCallback(
       "SignalNativeTest",
@@ -1597,27 +1642,40 @@ TEST_F(EmbedderTest, KeyDataMessageResponseIsCorrectlyInvoked) {
   context.AddNativeCallback(
       "EchoKeyEvent", CREATE_NATIVE_ENTRY([](Dart_NativeArguments args) {}));
 
+  context.AddNativeCallback(
+      "EchoKeyMessageInfo", CREATE_NATIVE_ENTRY([](Dart_NativeArguments args) {}));
+
   auto engine = builder.LaunchEngine();
   ASSERT_TRUE(engine.is_valid());
   ready.Wait();
 
   // Dispatch a single event
-  FlutterKeyEvent event{
+  FlutterKeyEvent events[] = {
+    FlutterKeyEvent{
       .struct_size = sizeof(FlutterKeyEvent),
       .timestamp = 1000,
       .type = kFlutterKeyEventTypeDown,
       .physical = 0x00070005,
       .logical = 0x00000000062,
       .character = nullptr,
+    },
+  };
+  const uint8_t data[10] = {0x1, 0x5, 0x2, 0x6, 0x3, 0x7, 0x4, 0x8, 0x9, 0xa};
+  FlutterKeyMessage message {
+    .struct_size = sizeof(FlutterKeyMessage),
+    .num_events = 1,
+    .events = events,
+    .raw_event_size = sizeof(data) / sizeof(*data),
+    .raw_event = data,
   };
 
   KeyEventUserData user_data1{
       .latch = std::make_shared<fml::AutoResetWaitableEvent>(),
   };
   // Entrypoint `key_data_echo` uses `event.synthesized` as `handled`.
-  event.synthesized = true;
-  FlutterEngineSendKeyEvent(
-      engine.get(), &event,
+  events[0].synthesized = true;
+  FlutterEngineSendKeyMessage(
+      engine.get(), &message,
       [](bool handled, void* untyped_user_data) {
         KeyEventUserData* user_data =
             reinterpret_cast<KeyEventUserData*>(untyped_user_data);
@@ -1645,9 +1703,9 @@ TEST_F(EmbedderTest, KeyDataMessageResponseIsCorrectlyInvoked) {
     user_data->latch->Signal();
   };
 
-  event.synthesized = false;
-  FlutterEngineSendKeyEvent(engine.get(), &event, callback23, &user_data2);
-  FlutterEngineSendKeyEvent(engine.get(), &event, callback23, &user_data3);
+  events[0].synthesized = false;
+  FlutterEngineSendKeyMessage(engine.get(), &message, callback23, &user_data2);
+  FlutterEngineSendKeyMessage(engine.get(), &message, callback23, &user_data3);
   user_data2.latch->Wait();
   user_data3.latch->Wait();
   EXPECT_TRUE(user_data2.returned);

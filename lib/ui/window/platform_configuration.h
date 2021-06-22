@@ -453,7 +453,7 @@ class PlatformConfiguration final {
   void CompletePlatformMessageEmptyResponse(int response_id);
 
   //----------------------------------------------------------------------------
-  /// @brief      Responds to a previously registered key data message from the
+  /// @brief      Responds to a previously registered key data from the
   ///             framework to the engine.
   ///
   ///             For each response_id, this method should be called exactly
@@ -466,6 +466,21 @@ class PlatformConfiguration final {
   /// @param[in] handled     Whether the key data is handled.
   ///
   void CompleteKeyDataResponse(uint64_t response_id, bool handled);
+
+  //----------------------------------------------------------------------------
+  /// @brief      Responds to a previously registered key data message from the
+  ///             framework to the engine.
+  ///
+  ///             For each response_id, this method should be called exactly
+  ///             once. Responding to a response_id that has not been registered
+  ///             or has been invoked will lead to a fatal error.
+  ///
+  /// @param[in] response_id The unique id that identifies the original platform
+  ///                        message to respond to, created by
+  ///                        RegisterKeyDataMessageResponse.
+  /// @param[in] handled     Whether the key data is handled.
+  ///
+  void CompleteKeyDataMessageResponse(uint64_t response_id, bool handled);
 
  private:
   PlatformConfigurationClient* client_;
