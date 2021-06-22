@@ -254,14 +254,14 @@ bool RuntimeController::DispatchKeyDataPacket(const KeyDataPacket& packet,
   return false;
 }
 
-bool RuntimeController::DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet,
-                                              KeyDataMessageResponse callback) {
+bool RuntimeController::DispatchKeyMessagePacket(const KeyMessagePacket& packet,
+                                              KeyMessageResponse callback) {
   if (auto* platform_configuration = GetPlatformConfigurationIfAvailable()) {
-    TRACE_EVENT1("flutter", "RuntimeController::DispatchKeyDataMessagePacket", "mode",
+    TRACE_EVENT1("flutter", "RuntimeController::DispatchKeyMessagePacket", "mode",
                  "basic");
     uint64_t response_id =
-        platform_configuration->RegisterKeyDataMessageResponse(std::move(callback));
-    platform_configuration->get_window(0)->DispatchKeyDataMessagePacket(packet,
+        platform_configuration->RegisterKeyMessageResponse(std::move(callback));
+    platform_configuration->get_window(0)->DispatchKeyMessagePacket(packet,
                                                                  response_id);
     return true;
   }

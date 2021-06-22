@@ -190,13 +190,13 @@ void _RespondToKeyData(Dart_NativeArguments args) {
   tonic::DartCallStatic(&RespondToKeyData, args);
 }
 
-void RespondToKeyDataMessage(Dart_Handle window, int response_id, bool handled) {
-  UIDartState::Current()->platform_configuration()->CompleteKeyDataMessageResponse(
+void RespondToKeyMessage(Dart_Handle window, int response_id, bool handled) {
+  UIDartState::Current()->platform_configuration()->CompleteKeyMessageResponse(
       response_id, handled);
 }
 
-void _RespondToKeyDataMessage(Dart_NativeArguments args) {
-  tonic::DartCallStatic(&RespondToKeyDataMessage, args);
+void _RespondToKeyMessage(Dart_NativeArguments args) {
+  tonic::DartCallStatic(&RespondToKeyMessage, args);
 }
 
 Dart_Handle ToByteData(const fml::Mapping& buffer) {
@@ -375,8 +375,8 @@ uint64_t PlatformConfiguration::RegisterKeyDataResponse(
   return response_id;
 }
 
-uint64_t PlatformConfiguration::RegisterKeyDataMessageResponse(
-    KeyDataMessageResponse callback) {
+uint64_t PlatformConfiguration::RegisterKeyMessageResponse(
+    KeyMessageResponse callback) {
   uint64_t response_id = next_key_response_id_++;
   pending_key_message_responses_[response_id] = std::move(callback);
   return response_id;
@@ -472,7 +472,7 @@ void PlatformConfiguration::CompleteKeyDataResponse(uint64_t response_id,
   callback(handled);
 }
 
-void PlatformConfiguration::CompleteKeyDataMessageResponse(uint64_t response_id,
+void PlatformConfiguration::CompleteKeyMessageResponse(uint64_t response_id,
                                                     bool handled) {
   if (response_id == 0) {
     return;
@@ -482,7 +482,7 @@ void PlatformConfiguration::CompleteKeyDataMessageResponse(uint64_t response_id,
   if (it == pending_key_message_responses_.end()) {
     return;
   }
-  KeyDataMessageResponse callback = std::move(it->second);
+  KeyMessageResponse callback = std::move(it->second);
   pending_key_message_responses_.erase(it);
   callback(handled);
 }
@@ -518,7 +518,7 @@ void PlatformConfiguration::RegisterNatives(
       {"PlatformConfiguration_respondToPlatformMessage",
        _RespondToPlatformMessage, 3, true},
       {"PlatformConfiguration_respondToKeyData", _RespondToKeyData, 3, true},
-      {"PlatformConfiguration_respondToKeyDataMessage", _RespondToKeyDataMessage, 3, true},
+      {"PlatformConfiguration_respondToKeyMessage", _RespondToKeyMessage, 3, true},
       {"PlatformConfiguration_render", Render, 3, true},
       {"PlatformConfiguration_updateSemantics", UpdateSemantics, 2, true},
       {"PlatformConfiguration_setIsolateDebugName", SetIsolateDebugName, 2,

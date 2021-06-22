@@ -18,7 +18,7 @@
 #include "flutter/lib/ui/semantics/custom_accessibility_action.h"
 #include "flutter/lib/ui/semantics/semantics_node.h"
 #include "flutter/lib/ui/window/key_data_packet.h"
-#include "flutter/lib/ui/window/key_data_message_packet.h"
+#include "flutter/lib/ui/window/key_message_packet.h"
 #include "flutter/lib/ui/window/platform_message.h"
 #include "flutter/lib/ui/window/pointer_data_packet.h"
 #include "flutter/lib/ui/window/pointer_data_packet_converter.h"
@@ -56,7 +56,7 @@ class PlatformView {
   class Delegate {
    public:
     using KeyDataResponse = std::function<void(bool)>;
-    using KeyDataMessageResponse = std::function<void(bool)>;
+    using KeyMessageResponse = std::function<void(bool)>;
     //--------------------------------------------------------------------------
     /// @brief      Notifies the delegate that the platform view was created
     ///             with the given render surface. This surface is platform
@@ -150,12 +150,13 @@ class PlatformView {
     ///             forwarded to the running root isolate hosted by the engine
     ///             on the UI thread.
     ///
-    /// @param[in]  packet    The key data packet containing one key event.
+    /// @param[in]  packet    The key message packet containing one native key
+    ///                       event.
     /// @param[in]  callback  Called when the framework has decided whether
     ///                       to handle this key data.
     ///
-    virtual void OnPlatformViewDispatchKeyDataMessagePacket(
-        std::unique_ptr<KeyDataMessagePacket> packet,
+    virtual void OnPlatformViewDispatchKeyMessagePacket(
+        std::unique_ptr<KeyMessagePacket> packet,
         std::function<void(bool /* handled */)> callback) = 0;
 
     //--------------------------------------------------------------------------
@@ -621,14 +622,14 @@ class PlatformView {
 
   //----------------------------------------------------------------------------
   /// @brief      Dispatches key events from the embedder to the framework. Each
-  ///             key data packet contains one physical event and multiple
-  ///             logical key events. Each call to this method wakes up the UI
+  ///             key message packet contains information that describes one
+  ///             native event. Each call to this method wakes up the UI
   ///             thread.
   ///
-  /// @param[in]  packet  The key data packet to dispatch to the framework.
+  /// @param[in]  packet  The key message packet to dispatch to the framework.
   ///
-  void DispatchKeyDataMessagePacket(std::unique_ptr<KeyDataMessagePacket> packet,
-                             Delegate::KeyDataMessageResponse callback);
+  void DispatchKeyMessagePacket(std::unique_ptr<KeyMessagePacket> packet,
+                             Delegate::KeyMessageResponse callback);
 
   //--------------------------------------------------------------------------
   /// @brief      Used by the embedder to specify a texture that it wants the

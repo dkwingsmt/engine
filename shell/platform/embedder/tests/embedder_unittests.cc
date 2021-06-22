@@ -1489,7 +1489,7 @@ TEST_F(EmbedderTest, KeyDataResponseIsCorrectlyInvoked) {
   EXPECT_TRUE(user_data3.returned);
 }
 
-TEST_F(EmbedderTest, KeyDataMessageIsCorrectlySerialized) {
+TEST_F(EmbedderTest, KeyMessageIsCorrectlySerialized) {
   auto message_latch = std::make_shared<fml::AutoResetWaitableEvent>();
 
   auto& context = GetEmbedderContext(EmbedderTestContextType::kSoftwareContext);
@@ -1628,7 +1628,7 @@ TEST_F(EmbedderTest, KeyDataMessageIsCorrectlySerialized) {
 
 }
 
-TEST_F(EmbedderTest, KeyDataMessageResponseIsCorrectlyInvoked) {
+TEST_F(EmbedderTest, KeyMessageResponseIsCorrectlyInvoked) {
   auto& context = GetEmbedderContext(EmbedderTestContextType::kSoftwareContext);
   EmbedderConfigBuilder builder(context);
   builder.SetSoftwareRendererConfig();

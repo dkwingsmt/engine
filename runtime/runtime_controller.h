@@ -381,32 +381,32 @@ class RuntimeController : public PlatformConfigurationClient {
   bool DispatchPointerDataPacket(const PointerDataPacket& packet);
 
   //----------------------------------------------------------------------------
-  /// @brief      Dispatch the specified pointer data message to the running
+  /// @brief      Dispatch the specified key data to the running
   ///             root isolate.
   ///
   /// @param[in]  packet    The key data to dispatch to the isolate.
   /// @param[in]  callback  Called when the framework has decided whether
   ///                       to handle this key data.
   ///
-  /// @return     If the key data message was dispatched. This may fail is
+  /// @return     If the key data was dispatched. This may fail is
   ///             an isolate is not running.
   ///
   bool DispatchKeyDataPacket(const KeyDataPacket& packet,
                              KeyDataResponse callback);
 
   //----------------------------------------------------------------------------
-  /// @brief      Dispatch the specified pointer data message to the running
+  /// @brief      Dispatch the specified key message to the running
   ///             root isolate.
   ///
-  /// @param[in]  packet    The key data message to dispatch to the isolate.
+  /// @param[in]  packet    The key message to dispatch to the isolate.
   /// @param[in]  callback  Called when the framework has decided whether
   ///                       to handle this key data.
   ///
-  /// @return     If the key data message was dispatched. This may fail is
+  /// @return     If the key message was dispatched. This may fail is
   ///             an isolate is not running.
   ///
-  bool DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet,
-                             KeyDataMessageResponse callback);
+  bool DispatchKeyMessagePacket(const KeyMessagePacket& packet,
+                             KeyMessageResponse callback);
 
   //----------------------------------------------------------------------------
   /// @brief      Dispatch the semantics action to the specified accessibility

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "flutter/lib/ui/window/key_data_message_packet.h"
+#include "flutter/lib/ui/window/key_message_packet.h"
 
 #include <cstring>
 
@@ -19,7 +19,7 @@ static uint8_t* copy(uint8_t* dest, const void* source, size_t size_in_bytes) {
   return dest + size_in_bytes;
 }
 
-KeyDataMessagePacket::KeyDataMessagePacket(
+KeyMessagePacket::KeyMessagePacket(
     const KeyData* events,
     size_t num_events,
     const char* character,
@@ -56,6 +56,6 @@ KeyDataMessagePacket::KeyDataMessagePacket(
   }
 }
 
-KeyDataMessagePacket::~KeyDataMessagePacket() = default;
+KeyMessagePacket::~KeyMessagePacket() = default;
 
 }  // namespace flutter

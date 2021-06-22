@@ -110,8 +110,8 @@ class KeyData {
   }
 }
 
-class KeyDataMessage {
-  const KeyDataMessage(this.events, this.rawEventData);
+class KeyMessage {
+  const KeyMessage(this.events, this.rawEventData);
 
   final List<KeyData> events;
 

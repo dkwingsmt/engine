@@ -24,7 +24,7 @@ class PlatformMessage;
 class Scene;
 
 typedef std::function<void(bool /* handled */)> KeyDataResponse;
-typedef std::function<void(bool /* handled */)> KeyDataMessageResponse;
+typedef std::function<void(bool /* handled */)> KeyMessageResponse;
 
 //--------------------------------------------------------------------------
 /// @brief An enum for defining the different kinds of accessibility features
@@ -362,7 +362,7 @@ class PlatformConfiguration final {
   /// @return     The response ID to be associated with the callback. Using this
   ///             ID in CompleteKeyDataResponse will invoke the callback.
   ///
-  uint64_t RegisterKeyDataMessageResponse(KeyDataMessageResponse callback);
+  uint64_t RegisterKeyMessageResponse(KeyMessageResponse callback);
 
   //----------------------------------------------------------------------------
   /// @brief      Notifies the framework that it is time to begin working on a
@@ -477,10 +477,10 @@ class PlatformConfiguration final {
   ///
   /// @param[in] response_id The unique id that identifies the original platform
   ///                        message to respond to, created by
-  ///                        RegisterKeyDataMessageResponse.
+  ///                        RegisterKeyMessageResponse.
   /// @param[in] handled     Whether the key data is handled.
   ///
-  void CompleteKeyDataMessageResponse(uint64_t response_id, bool handled);
+  void CompleteKeyMessageResponse(uint64_t response_id, bool handled);
 
  private:
   PlatformConfigurationClient* client_;
@@ -506,7 +506,7 @@ class PlatformConfiguration final {
   // ID starts at 1 because an ID of 0 indicates that no response is expected.
   uint64_t next_key_response_id_ = 1;
   std::unordered_map<uint64_t, KeyDataResponse> pending_key_responses_;
-  std::unordered_map<uint64_t, KeyDataMessageResponse> pending_key_message_responses_;
+  std::unordered_map<uint64_t, KeyMessageResponse> pending_key_message_responses_;
 };
 
 }  // namespace flutter

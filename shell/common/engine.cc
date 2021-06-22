@@ -444,11 +444,11 @@ void Engine::DispatchKeyDataPacket(std::unique_ptr<KeyDataPacket> packet,
   }
 }
 
-void Engine::DispatchKeyDataMessagePacket(std::unique_ptr<KeyDataMessagePacket> packet,
-                                   KeyDataMessageResponse callback) {
-  TRACE_EVENT0("flutter", "Engine::DispatchKeyDataMessagePacket");
+void Engine::DispatchKeyMessagePacket(std::unique_ptr<KeyMessagePacket> packet,
+                                   KeyMessageResponse callback) {
+  TRACE_EVENT0("flutter", "Engine::DispatchKeyMessagePacket");
   if (runtime_controller_) {
-    runtime_controller_->DispatchKeyDataMessagePacket(*packet, std::move(callback));
+    runtime_controller_->DispatchKeyMessagePacket(*packet, std::move(callback));
   }
 }
 

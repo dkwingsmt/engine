@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "flutter/lib/ui/window/key_data_packet.h"
-#include "flutter/lib/ui/window/key_data_message_packet.h"
+#include "flutter/lib/ui/window/key_message_packet.h"
 #include "flutter/lib/ui/window/platform_message.h"
 #include "flutter/lib/ui/window/pointer_data_packet.h"
 #include "flutter/lib/ui/window/viewport_metrics.h"
@@ -40,14 +40,14 @@ class Window final {
   // It should be used later in
   // PlatformConfiguration::CompleteKeyDataResponse.
   void DispatchKeyDataPacket(const KeyDataPacket& packet, uint64_t response_id);
-  // Dispatch a packet to the framework that indicates a key event.
+  // Dispatch a packet to the framework that indicates a key message.
   //
   // The `response_id` is used to label the response of whether the key event
   // is handled by the framework, typically the return value of
-  // PlatformConfiguration::RegisterKeyDataResponse.
+  // PlatformConfiguration::RegisterKeyMessageResponse.
   // It should be used later in
-  // PlatformConfiguration::CompleteKeyDataResponse.
-  void DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet, uint64_t response_id);
+  // PlatformConfiguration::CompleteKeyMessageResponse.
+  void DispatchKeyMessagePacket(const KeyMessagePacket& packet, uint64_t response_id);
   void UpdateWindowMetrics(const ViewportMetrics& metrics);
 
  private:

@@ -54,7 +54,7 @@ void Window::DispatchKeyDataPacket(const KeyDataPacket& packet,
                              {data_handle, tonic::ToDart(response_id)}));
 }
 
-void Window::DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet,
+void Window::DispatchKeyMessagePacket(const KeyMessagePacket& packet,
                                    uint64_t response_id) {
   std::shared_ptr<tonic::DartState> dart_state = library_.dart_state().lock();
   if (!dart_state)
@@ -68,7 +68,7 @@ void Window::DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet,
     return;
   }
   tonic::LogIfError(
-      tonic::DartInvokeField(library_.value(), "_dispatchKeyDataMessage",
+      tonic::DartInvokeField(library_.value(), "_dispatchKeyMessage",
                              {data_handle, tonic::ToDart(response_id)}));
 }
 

@@ -752,19 +752,20 @@ class Engine final : public RuntimeDelegate,
                              KeyDataResponse callback);
 
   //----------------------------------------------------------------------------
-  /// @brief      Notifies the engine that the embedder has sent it a key data
-  ///             packet. A key data packet contains one key event. This call
+  /// @brief      Notifies the engine that the embedder has sent it a key message
+  ///             packet. A key message packet contains the generated
+  ///             information corresponding to one key native event. This call
   ///             originates in the platform view and the shell has forwarded
   ///             the same to the engine on the UI task runner here. The engine
-  ///             will decide whether to handle this event, and send the
-  ///             result using `callback`, which will be called exactly once.
+  ///             will decide whether to handle this event, and send the result
+  ///             using `callback`, which will be called exactly once.
   ///
   /// @param[in]  packet    The key data message packet.
   /// @param[in]  callback  Called when the framework has decided whether
   ///                       to handle this key data.
   ///
-  void DispatchKeyDataMessagePacket(std::unique_ptr<KeyDataMessagePacket> packet,
-                             KeyDataMessageResponse callback);
+  void DispatchKeyMessagePacket(std::unique_ptr<KeyMessagePacket> packet,
+                             KeyMessageResponse callback);
 
   //----------------------------------------------------------------------------
   /// @brief      Notifies the engine that the embedder encountered an

@@ -3,12 +3,12 @@
 // found in the LICENSE file.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:core';
+import 'dart:ffi';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui';
-import 'dart:isolate';
-import 'dart:ffi';
-import 'dart:core';
-import 'dart:convert';
 
 void main() {}
 
@@ -540,10 +540,16 @@ void key_data_echo() async {
   signalNativeTest();
 }
 
-// Echo the event data with `_echoKeyEvent`, and returns synthesized as handled.
+// Echo KeyMessage's basic information with `_echoKeyMessageInfo`,
+// echo each event with `_echoKeyEvent`.
+//
+// signalNativeTest() is called after each echo.
+//
+// The return value for the `onKeyMessage` callback is the `synthesized` field
+// of the first event, or false.
 @pragma('vm:entry-point')
 void key_message_echo() async {
-  PlatformDispatcher.instance.onKeyDataMessage = (KeyDataMessage message) {
+  PlatformDispatcher.instance.onKeyMessage = (KeyMessage message) {
     _echoKeyMessageInfo(
       message.events.length,
       message.rawEventData.lengthInBytes,

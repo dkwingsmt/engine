@@ -493,8 +493,8 @@ class Shell final : public PlatformView::Delegate,
       std::function<void(bool /* handled */)> callback) override;
 
   // |PlatformView::Delegate|
-  void OnPlatformViewDispatchKeyDataMessagePacket(
-      std::unique_ptr<KeyDataMessagePacket> packet,
+  void OnPlatformViewDispatchKeyMessagePacket(
+      std::unique_ptr<KeyMessagePacket> packet,
       std::function<void(bool /* handled */)> callback) override;
 
   // |PlatformView::Delegate|

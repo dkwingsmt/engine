@@ -1676,7 +1676,7 @@ FlutterEngineResult FlutterEngineSendKeyMessage(FLUTTER_API_SYMBOL(FlutterEngine
   if (raw_event == nullptr || raw_event_size == 0) {
     return kInvalidArguments;
   }
-  auto packet = std::make_unique<flutter::KeyDataMessagePacket>(
+  auto packet = std::make_unique<flutter::KeyMessagePacket>(
     static_cast<flutter::KeyData*>(key_data), num_events, message_character, raw_event, raw_event_size);
   if (!packet->valid()) {
     return kInternalInconsistency;
@@ -1688,7 +1688,7 @@ FlutterEngineResult FlutterEngineSendKeyMessage(FLUTTER_API_SYMBOL(FlutterEngine
   };
 
   return reinterpret_cast<flutter::EmbedderEngine*>(engine)
-                 ->DispatchKeyDataMessagePacket(std::move(packet), response)
+                 ->DispatchKeyMessagePacket(std::move(packet), response)
              ? kSuccess
              : LOG_EMBEDDER_ERROR(kInternalInconsistency,
                                   "Could not dispatch the key event to the "

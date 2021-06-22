@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef FLUTTER_LIB_UI_WINDOW_KEY_DATA_MESSAGE_PACKET_H_
-#define FLUTTER_LIB_UI_WINDOW_KEY_DATA_MESSAGE_PACKET_H_
+#ifndef FLUTTER_LIB_UI_WINDOW_KEY_MESSAGE_PACKET_H_
+#define FLUTTER_LIB_UI_WINDOW_KEY_MESSAGE_PACKET_H_
 
 #include <functional>
 #include <vector>
@@ -15,7 +15,7 @@ namespace flutter {
 
 // A byte stream representing a key message that consists of zero or more
 // converted KeyData as well as the JSON representation of the native event.
-class KeyDataMessagePacket {
+class KeyMessagePacket {
  public:
   // Build the key data packet by providing information.
   //
@@ -30,17 +30,17 @@ class KeyDataMessagePacket {
   //
   // The created packet may not be valid. Check validity with `valid`.  Failing
   // the validity check indicates a kInternalInconsistency error.
-  KeyDataMessagePacket(
+  KeyMessagePacket(
     const KeyData* events,
     size_t num_events,
     const char* character,
     const uint8_t* raw_event,
     size_t raw_event_size);
-  ~KeyDataMessagePacket();
+  ~KeyMessagePacket();
 
   // Prevent copying.
-  KeyDataMessagePacket(KeyDataMessagePacket const&) = delete;
-  KeyDataMessagePacket& operator=(KeyDataMessagePacket const&) = delete;
+  KeyMessagePacket(KeyMessagePacket const&) = delete;
+  KeyMessagePacket& operator=(KeyMessagePacket const&) = delete;
 
   const std::vector<uint8_t>& data() const { return data_; }
 
@@ -60,4 +60,4 @@ class KeyDataMessagePacket {
 
 }  // namespace flutter
 
-#endif  // FLUTTER_LIB_UI_WINDOW_POINTER_DATA_MESSAGE_PACKET_H_
+#endif  // FLUTTER_LIB_UI_WINDOW_KEY_MESSAGE_PACKET_H_

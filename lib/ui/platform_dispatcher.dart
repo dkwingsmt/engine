@@ -34,11 +34,11 @@ typedef _KeyDataResponseCallback = void Function(int responseId, bool handled);
 /// Signature for [PlatformDispatcher.onKeyData].
 typedef KeyDataCallback = bool Function(KeyData data);
 
-// Signature for the response to KeyDataCallback.
-typedef _KeyDataMessageResponseCallback = void Function(int responseId, bool handled);
+// Signature for the response to KeyMessageCallback.
+typedef _KeyMessageResponseCallback = void Function(int responseId, bool handled);
 
-/// Signature for [PlatformDispatcher.onKeyDataMessage].
-typedef KeyDataMessageCallback = bool Function(KeyDataMessage data);
+/// Signature for [PlatformDispatcher.onKeyMessage].
+typedef KeyMessageCallback = bool Function(KeyMessage data);
 
 /// Signature for [PlatformDispatcher.onSemanticsAction].
 typedef SemanticsActionCallback = void Function(int id, SemanticsAction action, ByteData? args);
@@ -401,36 +401,36 @@ class PlatformDispatcher {
     return keyData;
   }
 
-  /// Called by [_dispatchKeyDataMessage].
-  void _respondToKeyDataMessage(int responseId, bool handled)
-      native 'PlatformConfiguration_respondToKeyDataMessage';
+  /// Called by [_dispatchKeyMessage].
+  void _respondToKeyMessage(int responseId, bool handled)
+      native 'PlatformConfiguration_respondToKeyMessage';
 
-  /// A callback that is invoked when key data is available.
+  /// A callback that is invoked when key message is available.
   ///
   /// The framework invokes this callback in the same zone in which the callback
   /// was set.
-  KeyDataMessageCallback? get onKeyDataMessage => _onKeyDataMessage;
-  KeyDataMessageCallback? _onKeyDataMessage;
-  Zone _onKeyDataMessageZone = Zone.root;
-  set onKeyDataMessage(KeyDataMessageCallback? callback) {
-    _onKeyDataMessage = callback;
-    _onKeyDataMessageZone = Zone.current;
+  KeyMessageCallback? get onKeyMessage => _onKeyMessage;
+  KeyMessageCallback? _onKeyMessage;
+  Zone _onKeyMessageZone = Zone.root;
+  set onKeyMessage(KeyMessageCallback? callback) {
+    _onKeyMessage = callback;
+    _onKeyMessageZone = Zone.current;
   }
 
   // Called from the engine, via hooks.dart
-  void _dispatchKeyDataMessage(ByteData packet, int responseId) {
-    _invoke2<KeyDataMessage, _KeyDataMessageResponseCallback>(
-      (KeyDataMessage message, _KeyDataMessageResponseCallback callback) {
-        callback(responseId, onKeyDataMessage != null && onKeyDataMessage!(message));
+  void _dispatchKeyMessage(ByteData packet, int responseId) {
+    _invoke2<KeyMessage, _KeyMessageResponseCallback>(
+      (KeyMessage message, _KeyMessageResponseCallback callback) {
+        callback(responseId, onKeyMessage != null && onKeyMessage!(message));
       },
-      _onKeyDataMessageZone,
-      _unpackKeyDataMessage(packet),
-      _respondToKeyDataMessage,
+      _onKeyMessageZone,
+      _unpackKeyMessage(packet),
+      _respondToKeyMessage,
     );
   }
 
-  // The packet structure is described in `key_data_message_packet.h`.
-  static KeyDataMessage _unpackKeyDataMessage(ByteData packet) {
+  // The packet structure is described in `key_message_packet.h`.
+  static KeyMessage _unpackKeyMessage(ByteData packet) {
     const int kStride = Int64List.bytesPerElement;
     final int charDataSize = packet.getUint64(0, _kFakeHostEndian);
     final String? messageCharacter = charDataSize == 0 ? null : utf8.decoder.convert(
@@ -457,7 +457,7 @@ class PlatformDispatcher {
       'Malshaped key data message: rawEventData has length ${rawEventData.lengthInBytes}, '
       'while rawEventSize is $rawEventSize');
 
-    return KeyDataMessage(events, rawEventData);
+    return KeyMessage(events, rawEventData);
   }
 
   /// A callback that is invoked to report the [FrameTiming] of recently
