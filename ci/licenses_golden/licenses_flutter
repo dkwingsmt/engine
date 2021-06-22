@@ -437,6 +437,8 @@ FILE: ../../../flutter/lib/ui/window/key_data.cc
 FILE: ../../../flutter/lib/ui/window/key_data.h
 FILE: ../../../flutter/lib/ui/window/key_data_packet.cc
 FILE: ../../../flutter/lib/ui/window/key_data_packet.h
+FILE: ../../../flutter/lib/ui/window/key_data_message_packet.cc
+FILE: ../../../flutter/lib/ui/window/key_data_message_packet.h
 FILE: ../../../flutter/lib/ui/window/platform_configuration.cc
 FILE: ../../../flutter/lib/ui/window/platform_configuration.h
 FILE: ../../../flutter/lib/ui/window/platform_configuration_unittests.cc

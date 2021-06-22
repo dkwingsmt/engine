@@ -48,6 +48,12 @@ void PlatformView::DispatchKeyDataPacket(std::unique_ptr<KeyDataPacket> packet,
                                                 std::move(callback));
 }
 
+void PlatformView::DispatchKeyDataMessagePacket(std::unique_ptr<KeyDataMessagePacket> packet,
+                                         KeyDataMessageResponse callback) {
+  delegate_.OnPlatformViewDispatchKeyDataMessagePacket(std::move(packet),
+                                                std::move(callback));
+}
+
 void PlatformView::DispatchSemanticsAction(int32_t id,
                                            SemanticsAction action,
                                            fml::MallocMapping args) {

@@ -103,6 +103,8 @@ source_set("ui") {
     "window/key_data.h",
     "window/key_data_packet.cc",
     "window/key_data_packet.h",
+    "window/key_data_message_packet.cc",
+    "window/key_data_message_packet.h",
     "window/platform_configuration.cc",
     "window/platform_configuration.h",
     "window/platform_message.cc",

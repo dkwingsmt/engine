@@ -493,6 +493,11 @@ class Shell final : public PlatformView::Delegate,
       std::function<void(bool /* handled */)> callback) override;
 
   // |PlatformView::Delegate|
+  void OnPlatformViewDispatchKeyDataMessagePacket(
+      std::unique_ptr<KeyDataMessagePacket> packet,
+      std::function<void(bool /* handled */)> callback) override;
+
+  // |PlatformView::Delegate|
   void OnPlatformViewDispatchSemanticsAction(int32_t id,
                                              SemanticsAction action,
                                              fml::MallocMapping args) override;

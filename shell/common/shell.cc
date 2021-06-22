@@ -984,6 +984,23 @@ void Shell::OnPlatformViewDispatchKeyDataPacket(
 }
 
 // |PlatformView::Delegate|
+void Shell::OnPlatformViewDispatchKeyDataMessagePacket(
+    std::unique_ptr<KeyDataMessagePacket> packet,
+    std::function<void(bool /* handled */)> callback) {
+  TRACE_EVENT0("flutter", "Shell::OnPlatformViewDispatchKeyDataMessagePacket");
+  FML_DCHECK(is_setup_);
+  FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
+
+  task_runners_.GetUITaskRunner()->PostTask(
+      fml::MakeCopyable([engine = weak_engine_, packet = std::move(packet),
+                         callback = std::move(callback)]() mutable {
+        if (engine) {
+          engine->DispatchKeyDataMessagePacket(std::move(packet), std::move(callback));
+        }
+      }));
+}
+
+// |PlatformView::Delegate|
 void Shell::OnPlatformViewDispatchSemanticsAction(int32_t id,
                                                   SemanticsAction action,
                                                   fml::MallocMapping args) {

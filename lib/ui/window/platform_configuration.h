@@ -24,6 +24,7 @@ class PlatformMessage;
 class Scene;
 
 typedef std::function<void(bool /* handled */)> KeyDataResponse;
+typedef std::function<void(bool /* handled */)> KeyDataMessageResponse;
 
 //--------------------------------------------------------------------------
 /// @brief An enum for defining the different kinds of accessibility features
@@ -346,6 +347,24 @@ class PlatformConfiguration final {
   uint64_t RegisterKeyDataResponse(KeyDataResponse callback);
 
   //----------------------------------------------------------------------------
+  /// @brief      Registers a callback to be invoked when the framework has
+  ///             decided whether to handle an event. This callback originates
+  ///             in the platform view and has been forwarded through the engine
+  ///             to here.
+  ///
+  ///             This method will move and store the `callback`, associate it
+  ///             with a self-incrementing identifier, the response ID, then
+  ///             return the ID, which is typically used by
+  ///             Window::DispatchKeyDataPacket.
+  ///
+  /// @param[in]  callback  The callback to be registered.
+  ///
+  /// @return     The response ID to be associated with the callback. Using this
+  ///             ID in CompleteKeyDataResponse will invoke the callback.
+  ///
+  uint64_t RegisterKeyDataMessageResponse(KeyDataMessageResponse callback);
+
+  //----------------------------------------------------------------------------
   /// @brief      Notifies the framework that it is time to begin working on a
   ///             new frame previously scheduled via a call to
   ///             `PlatformConfigurationClient::ScheduleFrame`. This call
@@ -472,6 +491,7 @@ class PlatformConfiguration final {
   // ID starts at 1 because an ID of 0 indicates that no response is expected.
   uint64_t next_key_response_id_ = 1;
   std::unordered_map<uint64_t, KeyDataResponse> pending_key_responses_;
+  std::unordered_map<uint64_t, KeyDataMessageResponse> pending_key_message_responses_;
 };
 
 }  // namespace flutter

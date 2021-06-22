@@ -22,14 +22,16 @@ enum KeyEventType {
 /// Information about a key event.
 class KeyData {
   /// Creates an object that represents a key event.
+  ///
+  /// The [character] will be forced as null if [synthesized] is true.
   const KeyData({
     required this.timeStamp,
     required this.type,
     required this.physical,
     required this.logical,
-    required this.character,
+    required String? character,
     required this.synthesized,
-  });
+  }) : character = synthesized ? null : character;
 
   /// Time of event dispatch, relative to an arbitrary timeline.
   ///
@@ -77,7 +79,7 @@ class KeyData {
   /// processed as if the key actually went down or up at the time of the
   /// callback.
   ///
-  /// [KeyRepeatEvent] is never synthesized.
+  /// Key data of type [KeyEventType.repeat] is never synthesized.
   final bool synthesized;
 
   @override
@@ -106,4 +108,12 @@ class KeyData {
         return 'repeat';
     }
   }
+}
+
+class KeyDataMessage {
+  const KeyDataMessage(this.events, this.rawEventData);
+
+  final List<KeyData> events;
+
+  final ByteData rawEventData;
 }

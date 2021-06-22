@@ -254,6 +254,20 @@ bool RuntimeController::DispatchKeyDataPacket(const KeyDataPacket& packet,
   return false;
 }
 
+bool RuntimeController::DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet,
+                                              KeyDataMessageResponse callback) {
+  if (auto* platform_configuration = GetPlatformConfigurationIfAvailable()) {
+    TRACE_EVENT1("flutter", "RuntimeController::DispatchKeyDataMessagePacket", "mode",
+                 "basic");
+    uint64_t response_id =
+        platform_configuration->RegisterKeyDataMessageResponse(std::move(callback));
+    platform_configuration->get_window(0)->DispatchKeyDataMessagePacket(packet,
+                                                                 response_id);
+    return true;
+  }
+  return false;
+}
+
 bool RuntimeController::DispatchSemanticsAction(int32_t id,
                                                 SemanticsAction action,
                                                 fml::MallocMapping args) {

@@ -444,6 +444,14 @@ void Engine::DispatchKeyDataPacket(std::unique_ptr<KeyDataPacket> packet,
   }
 }
 
+void Engine::DispatchKeyDataMessagePacket(std::unique_ptr<KeyDataMessagePacket> packet,
+                                   KeyDataMessageResponse callback) {
+  TRACE_EVENT0("flutter", "Engine::DispatchKeyDataMessagePacket");
+  if (runtime_controller_) {
+    runtime_controller_->DispatchKeyDataMessagePacket(*packet, std::move(callback));
+  }
+}
+
 void Engine::DispatchSemanticsAction(int id,
                                      SemanticsAction action,
                                      fml::MallocMapping args) {

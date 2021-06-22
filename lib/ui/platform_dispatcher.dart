@@ -34,6 +34,12 @@ typedef _KeyDataResponseCallback = void Function(int responseId, bool handled);
 /// Signature for [PlatformDispatcher.onKeyData].
 typedef KeyDataCallback = bool Function(KeyData data);
 
+// Signature for the response to KeyDataCallback.
+typedef _KeyDataMessageResponseCallback = void Function(int responseId, bool handled);
+
+/// Signature for [PlatformDispatcher.onKeyDataMessage].
+typedef KeyDataMessageCallback = bool Function(KeyDataMessage data);
+
 /// Signature for [PlatformDispatcher.onSemanticsAction].
 typedef SemanticsActionCallback = void Function(int id, SemanticsAction action, ByteData? args);
 
@@ -393,6 +399,65 @@ class PlatformDispatcher {
     );
 
     return keyData;
+  }
+
+  /// Called by [_dispatchKeyDataMessage].
+  void _respondToKeyDataMessage(int responseId, bool handled)
+      native 'PlatformConfiguration_respondToKeyDataMessage';
+
+  /// A callback that is invoked when key data is available.
+  ///
+  /// The framework invokes this callback in the same zone in which the callback
+  /// was set.
+  KeyDataMessageCallback? get onKeyDataMessage => _onKeyDataMessage;
+  KeyDataMessageCallback? _onKeyDataMessage;
+  Zone _onKeyDataMessageZone = Zone.root;
+  set onKeyDataMessage(KeyDataMessageCallback? callback) {
+    _onKeyDataMessage = callback;
+    _onKeyDataMessageZone = Zone.current;
+  }
+
+  // Called from the engine, via hooks.dart
+  void _dispatchKeyDataMessage(ByteData packet, int responseId) {
+    _invoke2<KeyDataMessage, _KeyDataMessageResponseCallback>(
+      (KeyDataMessage message, _KeyDataMessageResponseCallback callback) {
+        callback(responseId, onKeyDataMessage != null && onKeyDataMessage!(message));
+      },
+      _onKeyDataMessageZone,
+      _unpackKeyDataMessage(packet),
+      _respondToKeyDataMessage,
+    );
+  }
+
+  // The packet structure is described in `key_data_message_packet.h`.
+  static KeyDataMessage _unpackKeyDataMessage(ByteData packet) {
+    const int kStride = Int64List.bytesPerElement;
+    final int charDataSize = packet.getUint64(0, _kFakeHostEndian);
+    final String? messageCharacter = charDataSize == 0 ? null : utf8.decoder.convert(
+          packet.buffer.asUint8List(kStride, charDataSize));
+    final int baseOffset = kStride + charDataSize;
+
+    int offset = 0;
+    final int numEvents = packet.getUint64(baseOffset + kStride * offset++, _kFakeHostEndian);
+    final List<KeyData> events = <KeyData>[];
+    for (int eventIndex = 0; eventIndex < numEvents; eventIndex += 1) {
+      events.add(KeyData(
+        timeStamp: Duration(microseconds: packet.getUint64(baseOffset + kStride * offset++, _kFakeHostEndian)),
+        type: KeyEventType.values[packet.getInt64(baseOffset + kStride * offset++, _kFakeHostEndian)],
+        physical: packet.getUint64(baseOffset + kStride * offset++, _kFakeHostEndian),
+        logical: packet.getUint64(baseOffset + kStride * offset++, _kFakeHostEndian),
+        character: messageCharacter,
+        synthesized: packet.getUint64(baseOffset + kStride * offset++, _kFakeHostEndian) != 0,
+      ));
+    }
+
+    final int rawEventSize = packet.getUint64(baseOffset + kStride * offset++, _kFakeHostEndian);
+    final ByteData rawEventData = ByteData.sublistView(packet, baseOffset + kStride * offset);
+    assert(rawEventData.lengthInBytes == rawEventSize,
+      'Malshaped key data message: rawEventData has length ${rawEventData.lengthInBytes}, '
+      'while rawEventSize is $rawEventSize');
+
+    return KeyDataMessage(events, rawEventData);
   }
 
   /// A callback that is invoked to report the [FrameTiming] of recently

@@ -143,6 +143,22 @@ bool EmbedderEngine::DispatchKeyDataPacket(
   return true;
 }
 
+bool EmbedderEngine::DispatchKeyDataMessagePacket(
+    std::unique_ptr<flutter::KeyDataMessagePacket> packet,
+    KeyDataMessageResponse callback) {
+  if (!IsValid() || !packet) {
+    return false;
+  }
+
+  auto platform_view = shell_->GetPlatformView();
+  if (!platform_view) {
+    return false;
+  }
+
+  platform_view->DispatchKeyDataMessagePacket(std::move(packet), std::move(callback));
+  return true;
+}
+
 bool EmbedderEngine::SendPlatformMessage(
     std::unique_ptr<PlatformMessage> message) {
   if (!IsValid() || !message) {

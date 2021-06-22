@@ -1623,6 +1623,75 @@ FlutterEngineResult FlutterEngineSendKeyEvent(FLUTTER_API_SYMBOL(FlutterEngine)
                                   "running Flutter application.");
 }
 
+FlutterEngineResult FlutterEngineSendKeyMessage(FLUTTER_API_SYMBOL(FlutterEngine)
+                                                  engine,
+                                              const FlutterKeyMessage* message,
+                                              FlutterKeyMessageCallback callback,
+                                              void* user_data) {
+  if (engine == nullptr) {
+    return LOG_EMBEDDER_ERROR(kInvalidArguments, "Engine handle was invalid.");
+  }
+
+  if (message == nullptr) {
+    return LOG_EMBEDDER_ERROR(kInvalidArguments, "Invalid key message.");
+  }
+
+  // It is asserted that at most one event can be non-synthesized, and only
+  // that event may have a non-null character (or may also be null).  This
+  // invariable is tracked by the following 2 variables, and will cause this
+  // function to return kInvalidArguments if broken.
+  bool found_nonsynthesized_event = false;
+  const char* message_character = nullptr;
+
+  const FlutterKeyEvent* events = SAFE_ACCESS(message, events, nullptr);
+  const size_t num_events = events == nullptr ? 0 : SAFE_ACCESS(message, num_events, 0);
+
+  flutter::KeyData key_data[num_events];
+  for (size_t event_index = 0; event_index < num_events; event_index += 1) {
+    const FlutterKeyEvent* event = &message->events[event_index];
+    flutter::KeyData* data = &key_data[event_index];
+    key_data->Clear();
+    key_data->timestamp = (uint64_t)SAFE_ACCESS(event, timestamp, 0);
+    key_data->type = MapKeyEventType(
+        SAFE_ACCESS(event, type, FlutterKeyEventType::kFlutterKeyEventTypeUp));
+    key_data->physical = SAFE_ACCESS(event, physical, 0);
+    key_data->logical = SAFE_ACCESS(event, logical, 0);
+    key_data->synthesized = SAFE_ACCESS(event, synthesized, false);
+    if (!key_data->synthesized) {
+      if (found_nonsynthesized_event) {
+        return kInvalidArguments;
+      } else {
+        found_nonsynthesized_event = true;
+        message_character = SAFE_ACCESS(event, character, nullptr);
+      }
+    } else {
+      if (SAFE_ACCESS(event, character, nullptr) != nullptr) {
+        return kInvalidArguments;
+      }
+    }
+  }
+
+  const uint8_t* raw_event = SAFE_ACCESS(message, raw_event, nullptr);
+  const size_t raw_event_size = SAFE_ACCESS(message, raw_event_size, 0);
+  if (raw_event == nullptr || raw_event_size == 0) {
+    return kInvalidArguments;
+  }
+  auto packet = std::make_unique<flutter::KeyDataMessagePacket>(
+    static_cast<flutter::KeyData*>(key_data), num_events, message_character, raw_event, raw_event_size);
+
+  auto response = [callback, user_data](bool handled) {
+    if (callback != nullptr)
+      callback(handled, user_data);
+  };
+
+  return reinterpret_cast<flutter::EmbedderEngine*>(engine)
+                 ->DispatchKeyDataMessagePacket(std::move(packet), response)
+             ? kSuccess
+             : LOG_EMBEDDER_ERROR(kInternalInconsistency,
+                                  "Could not dispatch the key event to the "
+                                  "running Flutter application.");
+}
+
 FlutterEngineResult FlutterEngineSendPlatformMessage(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     const FlutterPlatformMessage* flutter_message) {
@@ -2298,6 +2367,7 @@ FlutterEngineResult FlutterEngineGetProcAddresses(
   SET_PROC(SendWindowMetricsEvent, FlutterEngineSendWindowMetricsEvent);
   SET_PROC(SendPointerEvent, FlutterEngineSendPointerEvent);
   SET_PROC(SendKeyEvent, FlutterEngineSendKeyEvent);
+  SET_PROC(SendKeyMessage, FlutterEngineSendKeyMessage);
   SET_PROC(SendPlatformMessage, FlutterEngineSendPlatformMessage);
   SET_PROC(PlatformMessageCreateResponseHandle,
            FlutterPlatformMessageCreateResponseHandle);

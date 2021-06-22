@@ -54,6 +54,24 @@ void Window::DispatchKeyDataPacket(const KeyDataPacket& packet,
                              {data_handle, tonic::ToDart(response_id)}));
 }
 
+void Window::DispatchKeyDataMessagePacket(const KeyDataMessagePacket& packet,
+                                   uint64_t response_id) {
+  std::shared_ptr<tonic::DartState> dart_state = library_.dart_state().lock();
+  if (!dart_state)
+    return;
+  tonic::DartState::Scope scope(dart_state);
+
+  const std::vector<uint8_t>& buffer = packet.data();
+  Dart_Handle data_handle =
+      tonic::DartByteData::Create(buffer.data(), buffer.size());
+  if (Dart_IsError(data_handle)) {
+    return;
+  }
+  tonic::LogIfError(
+      tonic::DartInvokeField(library_.value(), "_dispatchKeyDataMessage",
+                             {data_handle, tonic::ToDart(response_id)}));
+}
+
 void Window::UpdateWindowMetrics(const ViewportMetrics& metrics) {
   viewport_metrics_ = metrics;
 

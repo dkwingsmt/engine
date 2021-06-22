@@ -733,6 +733,17 @@ typedef struct {
 typedef void (*FlutterKeyEventCallback)(bool /* handled */,
                                         void* /* user_data */);
 
+typedef struct {
+  size_t struct_size;
+  size_t num_events;
+  const FlutterKeyEvent* events;
+  size_t raw_event_size;
+  const uint8_t* raw_event;
+} FlutterKeyMessage;
+
+typedef void (*FlutterKeyMessageCallback)(bool /* result */,
+                                        void* /* user_data */);
+
 struct _FlutterPlatformMessageResponseHandle;
 typedef struct _FlutterPlatformMessageResponseHandle
     FlutterPlatformMessageResponseHandle;
@@ -1745,6 +1756,32 @@ FlutterEngineResult FlutterEngineSendKeyEvent(FLUTTER_API_SYMBOL(FlutterEngine)
                                               FlutterKeyEventCallback callback,
                                               void* user_data);
 
+//------------------------------------------------------------------------------
+/// @brief      Sends a key event to the engine. The framework will decide
+///             whether to handle this event in a synchronous fashion, although
+///             due to technical limitation, the result is always reported
+///             asynchronously. The `callback` is guaranteed to be called
+///             exactly once.
+///
+/// @param[in]  engine         A running engine instance.
+/// @param[in]  event          The event data to be sent. This function will no
+///                            longer access `event` after returning.
+/// @param[in]  callback       The callback invoked by the engine when the
+///                            Flutter application has decided whether it
+///                            handles this event. Accepts nullptr.
+/// @param[in]  user_data      The context associated with the callback. The
+///                            exact same value will used to invoke `callback`.
+///                            Accepts nullptr.
+///
+/// @return     The result of the call.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineSendKeyMessage(FLUTTER_API_SYMBOL(FlutterEngine)
+                                                  engine,
+                                              const FlutterKeyMessage* message,
+                                              FlutterKeyMessageCallback callback,
+                                              void* user_data);
+
 FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineSendPlatformMessage(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
@@ -2263,6 +2300,11 @@ typedef FlutterEngineResult (*FlutterEngineSendKeyEventFnPtr)(
     const FlutterKeyEvent* event,
     FlutterKeyEventCallback callback,
     void* user_data);
+typedef FlutterEngineResult (*FlutterEngineSendKeyMessageFnPtr)(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    const FlutterKeyMessage* message,
+    FlutterKeyMessageCallback callback,
+    void* user_data);
 typedef FlutterEngineResult (*FlutterEngineSendPlatformMessageFnPtr)(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     const FlutterPlatformMessage* message);
@@ -2357,6 +2399,7 @@ typedef struct {
   FlutterEngineSendWindowMetricsEventFnPtr SendWindowMetricsEvent;
   FlutterEngineSendPointerEventFnPtr SendPointerEvent;
   FlutterEngineSendKeyEventFnPtr SendKeyEvent;
+  FlutterEngineSendKeyMessageFnPtr SendKeyMessage;
   FlutterEngineSendPlatformMessageFnPtr SendPlatformMessage;
   FlutterEnginePlatformMessageCreateResponseHandleFnPtr
       PlatformMessageCreateResponseHandle;

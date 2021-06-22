@@ -366,6 +366,13 @@ uint64_t PlatformConfiguration::RegisterKeyDataResponse(
   return response_id;
 }
 
+uint64_t PlatformConfiguration::RegisterKeyDataMessageResponse(
+    KeyDataMessageResponse callback) {
+  uint64_t response_id = next_key_response_id_++;
+  pending_key_message_responses_[response_id] = std::move(callback);
+  return response_id;
+}
+
 void PlatformConfiguration::BeginFrame(fml::TimePoint frameTime) {
   std::shared_ptr<tonic::DartState> dart_state =
       begin_frame_.dart_state().lock();
