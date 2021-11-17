@@ -529,6 +529,7 @@ class PlatformDispatcher {
   /// from the platform.
   void _dispatchPlatformMessage(String name, ByteData? data, int responseId) {
     if (name == ChannelBuffers.kControlChannelName) {
+      assert(false);
       try {
         channelBuffers.handleMessage(data!);
       } finally {

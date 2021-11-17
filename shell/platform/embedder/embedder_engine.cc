@@ -57,6 +57,14 @@ bool EmbedderEngine::LaunchShell() {
   // shell again.
   shell_args_.reset();
 
+  printf("Sending\n");fflush(stdout);
+  std::string resize_keydata_message_data = "resize\rflutter/keyevent\r10";
+  std::unique_ptr<PlatformMessage> resize_keydata_message = std::make_unique<PlatformMessage>(
+    "dev.flutter/channel-buffers",
+    fml::MallocMapping::Copy(reinterpret_cast<const uint8_t*>(resize_keydata_message_data.c_str()), resize_keydata_message_data.size() + 1),
+    nullptr);
+  shell_->GetPlatformView()->DispatchPlatformMessage(std::move(resize_keydata_message));
+
   return IsValid();
 }
 
