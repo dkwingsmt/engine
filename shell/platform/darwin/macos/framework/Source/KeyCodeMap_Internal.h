@@ -85,15 +85,16 @@ typedef enum {
 } ModifierFlag;
 
 /**
- * A character that Flutter wants to derive layout for, and guides on how to
- * derive it.
+ * A key that Flutter wants to derive layout for, and guides on how to derive
+ * it.
  */
 typedef struct {
-  // The key code for a key that prints `keyChar` in the US keyboard layout.
+  // The key code for a key that is mapped to `logicalKey` in the US keyboard
+  // layout.
   uint16_t keyCode;
 
-  // The printable string to derive logical key for.
-  uint8_t keyChar;
+  // The logical key for this key.
+  uint64_t logicalKey;
 
   // If the goal is mandatory, the keyboard manager will make sure to find a
   // logical key for this character, falling back to the US keyboard layout.

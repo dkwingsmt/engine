@@ -38,7 +38,8 @@ extern const uint64_t kUnicodePlane;
 extern const uint64_t kGtkPlane;
 
 typedef struct {
-  // The key code for a key that prints `keyChar` in the US keyboard layout.
+  // The key code for a key that is mapped to `logical_key` in the US keyboard
+  // layout.
   uint16_t keycode;
 
   // The logical key for this key.

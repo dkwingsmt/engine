@@ -268,7 +268,7 @@ typedef _Nullable _NSResponderPtr (^NextResponderProvider)();
   std::map<uint32_t, LayoutGoal> usLayoutGoalsByKeyCode;
   for (const LayoutGoal& goal : flutter::layoutGoals) {
     if (goal.mandatory) {
-      mandatoryGoalsByChar[goal.keyChar] = goal;
+      mandatoryGoalsByChar[goal.logicalKey] = goal;
     } else {
       usLayoutGoalsByKeyCode[goal.keyCode] = goal;
     }
@@ -297,12 +297,12 @@ typedef _Nullable _NSResponderPtr (^NextResponderProvider)();
     //    there are no non-latin logical keys.
     //  - Derived on the fly from keyCode & characters.
     for (const LayoutClue& clue : thisKeyClues) {
-      uint32_t keyChar = clue.isDeadKey ? 0 : clue.character;
-      auto matchingGoal = mandatoryGoalsByChar.find(keyChar);
+      uint32_t logicalKey = clue.isDeadKey ? 0 : clue.character;
+      auto matchingGoal = mandatoryGoalsByChar.find(logicalKey);
       if (matchingGoal != mandatoryGoalsByChar.end()) {
         // Found a key that produces a mandatory char. Use it.
         NSAssert(_layoutMap[@(keyCode)] == nil, @"Attempting to assign an assigned key code.");
-        _layoutMap[@(keyCode)] = @(keyChar);
+        _layoutMap[@(keyCode)] = @(logicalKey);
         mandatoryGoalsByChar.erase(matchingGoal);
         break;
       }
@@ -310,7 +310,7 @@ typedef _Nullable _NSResponderPtr (^NextResponderProvider)();
     bool hasAnyEascii = isEascii(thisKeyClues[0]) || isEascii(thisKeyClues[1]);
     // See if any produced char meets the requirement as a logical key.
     if (_layoutMap[@(keyCode)] == nil && !hasAnyEascii) {
-      _layoutMap[@(keyCode)] = @(usLayoutGoalsByKeyCode[keyCode].keyChar);
+      _layoutMap[@(keyCode)] = @(usLayoutGoalsByKeyCode[keyCode].logicalKey);
     }
   }
 #ifdef DEBUG_PRINT_LAYOUT
@@ -320,7 +320,7 @@ typedef _Nullable _NSResponderPtr (^NextResponderProvider)();
   // Ensure all mandatory goals are assigned.
   for (auto mandatoryGoalIter : mandatoryGoalsByChar) {
     const LayoutGoal& goal = mandatoryGoalIter.second;
-    _layoutMap[@(goal.keyCode)] = @(goal.keyChar);
+    _layoutMap[@(goal.keyCode)] = @(goal.logicalKey);
   }
 }
 
