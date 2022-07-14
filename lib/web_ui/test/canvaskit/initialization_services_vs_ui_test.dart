@@ -16,7 +16,6 @@ void testMain() {
     expect(windowFlutterCanvasKit, isNull);
 
     expect(findGlassPane(), isNull);
-    expect(Keyboard.instance, isNull);
     expect(MouseCursor.instance, isNull);
     expect(KeyboardBinding.instance, isNull);
     expect(PointerBinding.instance, isNull);
@@ -27,7 +26,6 @@ void testMain() {
     expect(windowFlutterCanvasKit, isNotNull);
 
     expect(findGlassPane(), isNull);
-    expect(Keyboard.instance, isNull);
     expect(MouseCursor.instance, isNull);
     expect(KeyboardBinding.instance, isNull);
     expect(PointerBinding.instance, isNull);
@@ -35,7 +33,6 @@ void testMain() {
     // Now UI should be taken over by Flutter.
     await initializeEngineUi();
     expect(findGlassPane(), isNotNull);
-    expect(Keyboard.instance, isNotNull);
     expect(MouseCursor.instance, isNotNull);
     expect(KeyboardBinding.instance, isNotNull);
     expect(PointerBinding.instance, isNotNull);

@@ -9,6 +9,7 @@ import 'browser_detection.dart';
 import 'dom.dart';
 import 'key_map.g.dart';
 import 'platform_dispatcher.dart';
+import 'raw_keyboard.dart';
 import 'safe_browser_api.dart';
 import 'semantics.dart';
 
@@ -87,27 +88,45 @@ Duration _eventTimeStampToDuration(num milliseconds) {
   return Duration(milliseconds: ms, microseconds: micro);
 }
 
+/// The single entrance of processing keyboard events.
+///
+/// This class has a global singleton [instance]. It owns a [RawKeyboard],
+/// which corresponds to the raw keyboard system in the framework, and a
+/// [KeyboardConveter], which corresponds to the hardware keyboard system.
 class KeyboardBinding {
   /// The singleton instance of this object.
-  static KeyboardBinding? get instance => _instance;
+  static KeyboardBinding get instance => _instance!;
   static KeyboardBinding? _instance;
 
   static void initInstance() {
     if (_instance == null) {
       _instance = KeyboardBinding._();
-      assert(() {
-        registerHotRestartListener(_instance!._reset);
-        return true;
-      }());
+      registerHotRestartListener(_instance!.reset);
     }
   }
 
   KeyboardBinding._() {
-    _setup();
+    _converter = KeyboardConverter(_onKeyData, onMacOs: operatingSystem == OperatingSystem.macOs);
+    _rawKeyboard = RawKeyboard(onMacOs: operatingSystem == OperatingSystem.macOs);
+    _addEventListener('keydown', allowInterop(_handleDomEvent));
+    _addEventListener('keyup', allowInterop(_handleDomEvent));
   }
 
   late final KeyboardConverter _converter;
+  late final RawKeyboard _rawKeyboard;
   final Map<String, DomEventListener> _listeners = <String, DomEventListener>{};
+
+  void _handleDomEvent(DomEvent event) {
+    if (!domInstanceOfString(event, 'KeyboardEvent')) {
+      return;
+    }
+
+    // Order matters: _converter must be before _rawKeyboard, because KeyData
+    // must be sent before raw key data for correct mode detection.
+    final FlutterHtmlKeyboardEvent flutterEvent = FlutterHtmlKeyboardEvent(event as DomKeyboardEvent);
+    _converter.handleEvent(flutterEvent);
+    _rawKeyboard.handleEvent(flutterEvent);
+  }
 
   void _addEventListener(String eventName, DomEventListener handler) {
     dynamic loggedHandler(DomEvent event) {
@@ -126,13 +145,6 @@ class KeyboardBinding {
     domWindow.addEventListener(eventName, wrappedHandler, true);
   }
 
-  /// Remove all active event listeners.
-  void _clearListeners() {
-    _listeners.forEach((String eventName, DomEventListener listener) {
-      domWindow.removeEventListener(eventName, listener, true);
-    });
-    _listeners.clear();
-  }
   bool _onKeyData(ui.KeyData data) {
     bool? result;
     // This callback is designed to be invoked synchronously. This is enforced
@@ -142,19 +154,13 @@ class KeyboardBinding {
     return result!;
   }
 
-  void _setup() {
-    _addEventListener('keydown', allowInterop((DomEvent event) {
-      return _converter.handleEvent(FlutterHtmlKeyboardEvent(event as DomKeyboardEvent));
-    }));
-    _addEventListener('keyup', allowInterop((DomEvent event) {
-      return _converter.handleEvent(FlutterHtmlKeyboardEvent(event as DomKeyboardEvent));
-    }));
-    _converter = KeyboardConverter(_onKeyData, onMacOs: operatingSystem == OperatingSystem.macOs);
-  }
-
-  void _reset() {
-    _clearListeners();
+  void reset() {
+    _listeners.forEach((String eventName, DomEventListener listener) {
+      domWindow.removeEventListener(eventName, listener, true);
+    });
+    _listeners.clear();
     _converter.dispose();
+    // _rawKeyboard.dispose();
   }
 }
 

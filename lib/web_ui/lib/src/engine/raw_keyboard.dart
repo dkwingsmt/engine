@@ -5,25 +5,16 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import '../engine.dart'  show registerHotRestartListener;
-import 'dom.dart';
 import 'keyboard_binding.dart';
 import 'platform_dispatcher.dart';
-import 'safe_browser_api.dart';
 import 'services.dart';
 
-/// Provides keyboard bindings, such as the `flutter/keyevent` channel.
+/// Parses keyboard events and send raw information through the
+/// `flutter/keyevent` channel.
+///
+/// An instance of this is typically owned by [KeyboardBinding].
 class RawKeyboard {
-  /// Initializes the [RawKeyboard] singleton.
-  ///
-  /// Use the [instance] getter to get the singleton after calling this method.
-  static void initialize({bool onMacOs = false}) {
-    _instance ??= RawKeyboard._(onMacOs);
-  }
-
-  /// The [RawKeyboard] singleton.
-  static RawKeyboard? get instance => _instance;
-  static RawKeyboard? _instance;
+  RawKeyboard({this.onMacOs = false});
 
   /// A mapping of [KeyboardEvent.code] to [Timer].
   ///
@@ -31,40 +22,15 @@ class RawKeyboard {
   /// if no repeat events were received.
   final Map<String, Timer> _keydownTimers = <String, Timer>{};
 
-  DomEventListener? _keydownListener;
-  DomEventListener? _keyupListener;
-
-  RawKeyboard._(this._onMacOs) {
-    _keydownListener = allowInterop((DomEvent event) {
-      _handleHtmlEvent(event);
-    });
-    domWindow.addEventListener('keydown', _keydownListener);
-
-    _keyupListener = allowInterop((DomEvent event) {
-      _handleHtmlEvent(event);
-    });
-    domWindow.addEventListener('keyup', _keyupListener);
-    registerHotRestartListener(() {
-      dispose();
-    });
-  }
-
-  /// Uninitializes the [RawKeyboard] singleton.
+  /// Terminates unfinished tasks in this [RawKeyboard] instance.
   ///
-  /// After calling this method this object becomes unusable and [instance]
-  /// becomes `null`. Call [initialize] again to initialize a new singleton.
+  /// The [dispose] must be called when a [RawKeyboard] instance is no longer
+  /// used.
   void dispose() {
-    domWindow.removeEventListener('keydown', _keydownListener);
-    domWindow.removeEventListener('keyup', _keyupListener);
-
     for (final String key in _keydownTimers.keys) {
       _keydownTimers[key]!.cancel();
     }
     _keydownTimers.clear();
-
-    _keydownListener = null;
-    _keyupListener = null;
-    _instance = null;
   }
 
   static const JSONMessageCodec _messageCodec = JSONMessageCodec();
@@ -74,7 +40,7 @@ class RawKeyboard {
   /// Initializing with `0x0` which means no meta keys are pressed.
   int _lastMetaState = 0x0;
 
-  bool _onMacOs;
+  final bool onMacOs;
 
   // When the user enters a browser/system shortcut (e.g. `cmd+alt+i`) on macOS,
   // the browser doesn't send a keyup for it. This puts the framework in a
@@ -85,15 +51,10 @@ class RawKeyboard {
   // event within a specific duration ([_kKeydownCancelDurationMac]) we assume
   // the user has released the key and we synthesize a keyup event.
   bool _shouldDoKeyGuard() {
-    return _onMacOs;
+    return onMacOs;
   }
 
-  void _handleHtmlEvent(DomEvent domEvent) {
-    if (!domInstanceOfString(domEvent, 'KeyboardEvent')) {
-      return;
-    }
-
-    final FlutterHtmlKeyboardEvent event = FlutterHtmlKeyboardEvent(domEvent as DomKeyboardEvent);
+  void handleEvent(FlutterHtmlKeyboardEvent event) {
     final String timerKey = event.code!;
 
     // Don't handle synthesizing a keyup event for modifier keys
