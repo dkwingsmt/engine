@@ -12,17 +12,17 @@ import 'safe_browser_api.dart';
 import 'services.dart';
 
 /// Provides keyboard bindings, such as the `flutter/keyevent` channel.
-class Keyboard {
-  /// Initializes the [Keyboard] singleton.
+class RawKeyboard {
+  /// Initializes the [RawKeyboard] singleton.
   ///
   /// Use the [instance] getter to get the singleton after calling this method.
   static void initialize({bool onMacOs = false}) {
-    _instance ??= Keyboard._(onMacOs);
+    _instance ??= RawKeyboard._(onMacOs);
   }
 
-  /// The [Keyboard] singleton.
-  static Keyboard? get instance => _instance;
-  static Keyboard? _instance;
+  /// The [RawKeyboard] singleton.
+  static RawKeyboard? get instance => _instance;
+  static RawKeyboard? _instance;
 
   /// A mapping of [KeyboardEvent.code] to [Timer].
   ///
@@ -33,7 +33,7 @@ class Keyboard {
   DomEventListener? _keydownListener;
   DomEventListener? _keyupListener;
 
-  Keyboard._(this._onMacOs) {
+  RawKeyboard._(this._onMacOs) {
     _keydownListener = allowInterop((DomEvent event) {
       _handleHtmlEvent(event);
     });
@@ -48,7 +48,7 @@ class Keyboard {
     });
   }
 
-  /// Uninitializes the [Keyboard] singleton.
+  /// Uninitializes the [RawKeyboard] singleton.
   ///
   /// After calling this method this object becomes unusable and [instance]
   /// becomes `null`. Call [initialize] again to initialize a new singleton.

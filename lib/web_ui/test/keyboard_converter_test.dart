@@ -9,6 +9,8 @@ import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
 import 'package:ui/ui.dart' as ui;
 
+import 'keyboard_test_common.dart';
+
 const int kLocationStandard = 0;
 const int kLocationLeft = 1;
 const int kLocationRight = 2;
@@ -1050,60 +1052,6 @@ void testMain() {
     );
     keyDataList.clear();
   });
-}
-
-class MockKeyboardEvent implements FlutterHtmlKeyboardEvent {
-  MockKeyboardEvent({
-    required this.type,
-    required this.code,
-    required this.key,
-    this.timeStamp = 0,
-    this.repeat = false,
-    this.altKey = false,
-    this.ctrlKey = false,
-    this.shiftKey = false,
-    this.metaKey = false,
-    this.location = 0,
-    this.onPreventDefault,
-  });
-
-  @override
-  String type;
-
-  @override
-  String? code;
-
-  @override
-  String? key;
-
-  @override
-  bool? repeat;
-
-  @override
-  num? timeStamp;
-
-  @override
-  bool altKey;
-
-  @override
-  bool ctrlKey;
-
-  @override
-  bool shiftKey;
-
-  @override
-  bool metaKey;
-
-  @override
-  int? location;
-
-  @override
-  bool getModifierState(String key) => modifierState.contains(key);
-  final Set<String> modifierState = <String>{};
-
-  @override
-  void preventDefault() { onPreventDefault?.call(); }
-  VoidCallback? onPreventDefault;
 }
 
 // Flags used for the `modifiers` argument of `key***Event` functions.
