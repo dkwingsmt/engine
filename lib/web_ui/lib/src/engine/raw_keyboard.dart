@@ -88,13 +88,13 @@ class RawKeyboard {
     return _onMacOs;
   }
 
-  void _handleHtmlEvent(DomEvent event) {
-    if (!domInstanceOfString(event, 'KeyboardEvent')) {
+  void _handleHtmlEvent(DomEvent domEvent) {
+    if (!domInstanceOfString(domEvent, 'KeyboardEvent')) {
       return;
     }
 
-    final FlutterHtmlKeyboardEvent keyboardEvent = FlutterHtmlKeyboardEvent(event as DomKeyboardEvent);
-    final String timerKey = keyboardEvent.code!;
+    final FlutterHtmlKeyboardEvent event = FlutterHtmlKeyboardEvent(domEvent as DomKeyboardEvent);
+    final String timerKey = event.code!;
 
     // Don't handle synthesizing a keyup event for modifier keys
     if (!_isModifierKey(event) && _shouldDoKeyGuard()) {
@@ -127,11 +127,11 @@ class RawKeyboard {
     final Map<String, dynamic> eventData = <String, dynamic>{
       'type': event.type,
       'keymap': 'web',
-      'code': keyboardEvent.code,
-      'key': keyboardEvent.key,
-      'location': keyboardEvent.location,
+      'code': event.code,
+      'key': event.key,
+      'location': event.location,
       'metaState': _lastMetaState,
-      'keyCode': keyboardEvent.keyCode,
+      'keyCode': event.keyCode,
     };
 
     EnginePlatformDispatcher.instance.invokeOnPlatformMessage('flutter/keyevent',
@@ -148,7 +148,7 @@ class RawKeyboard {
     );
   }
 
-  void _synthesizeKeyup(DomKeyboardEvent event) {
+  void _synthesizeKeyup(FlutterHtmlKeyboardEvent event) {
     final Map<String, dynamic> eventData = <String, dynamic>{
       'type': 'keyup',
       'keymap': 'web',
@@ -181,7 +181,7 @@ const int modifierCapsLock = 0x20;
 const int modifierScrollLock = 0x40;
 
 /// Creates a bitmask representing the meta state of the [event].
-int _getMetaState(DomKeyboardEvent event) {
+int _getMetaState(FlutterHtmlKeyboardEvent event) {
   int metaState = _modifierNone;
   if (event.getModifierState('Shift')) {
     metaState |= _modifierShift;
@@ -213,7 +213,7 @@ int _getMetaState(DomKeyboardEvent event) {
 ///
 /// Modifier keys are shift, alt, ctrl and meta/cmd/win. These are the keys used
 /// to perform keyboard shortcuts (e.g. `cmd+c`, `cmd+l`).
-bool _isModifierKey(DomKeyboardEvent event) {
+bool _isModifierKey(FlutterHtmlKeyboardEvent event) {
   final String key = event.key!;
   return key == 'Meta' || key == 'Shift' || key == 'Alt' || key == 'Control';
 }
@@ -221,7 +221,7 @@ bool _isModifierKey(DomKeyboardEvent event) {
 /// Returns true if the [event] is been affects by any of the modifiers key
 ///
 /// This is a strong indication that this key is been used for a shortcut
-bool _isAffectedByModifiers(DomKeyboardEvent event) {
+bool _isAffectedByModifiers(FlutterHtmlKeyboardEvent event) {
   return event.ctrlKey || event.shiftKey || event.altKey || event.metaKey;
 }
 
