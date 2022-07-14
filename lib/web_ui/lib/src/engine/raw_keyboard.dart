@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import '../engine.dart'  show registerHotRestartListener;
 import 'dom.dart';
+import 'keyboard_binding.dart';
 import 'platform_dispatcher.dart';
 import 'safe_browser_api.dart';
 import 'services.dart';
@@ -92,7 +93,7 @@ class RawKeyboard {
       return;
     }
 
-    final DomKeyboardEvent keyboardEvent = event as DomKeyboardEvent;
+    final FlutterHtmlKeyboardEvent keyboardEvent = FlutterHtmlKeyboardEvent(event as DomKeyboardEvent);
     final String timerKey = keyboardEvent.code!;
 
     // Don't handle synthesizing a keyup event for modifier keys
