@@ -128,10 +128,8 @@ void Animator::BeginFrame(
   }
 }
 
-void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
-                      float device_pixel_ratio) {
+void Animator::Render(std::vector<LayerTreeTask> tasks) {
   has_rendered_ = true;
-  last_layer_tree_size_ = layer_tree->frame_size();
 
   if (!frame_timings_recorder_) {
     // Framework can directly call render with a built scene.
@@ -148,9 +146,8 @@ void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
   delegate_.OnAnimatorUpdateLatestFrameTargetTime(
       frame_timings_recorder_->GetVsyncTargetTime());
 
-  auto layer_tree_item = std::make_unique<LayerTreeItem>(
-      std::move(layer_tree), std::move(frame_timings_recorder_),
-      device_pixel_ratio);
+  auto layer_tree_item = std::make_unique<FrameItem>(
+      std::move(tasks), std::move(frame_timings_recorder_));
   // Commit the pending continuation.
   PipelineProduceResult result =
       producer_continuation_.Complete(std::move(layer_tree_item));

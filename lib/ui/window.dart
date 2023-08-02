@@ -353,10 +353,11 @@ class FlutterView {
   ///   scheduling of frames.
   /// * [RendererBinding], the Flutter framework class which manages layout and
   ///   painting.
-  void render(Scene scene) => _render(scene as _NativeScene);
-
-  @Native<Void Function(Pointer<Void>)>(symbol: 'PlatformConfigurationNativeApi::Render')
-  external static void _render(_NativeScene scene);
+  void render(Scene scene) {
+    final Map<FlutterView, Scene> tasks = <FlutterView, Scene>{};
+    tasks[this] = scene;
+    PlatformDispatcher.instance.render(tasks);
+  }
 
   /// Change the retained semantics data about this [FlutterView].
   ///

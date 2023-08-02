@@ -365,9 +365,15 @@ void PlatformConfiguration::CompletePlatformMessageResponse(
   response->Complete(std::make_unique<fml::DataMapping>(std::move(data)));
 }
 
-void PlatformConfigurationNativeApi::Render(Scene* scene) {
+void PlatformConfigurationNativeApi::RenderViews(Dart_Handle native_view_ids,
+                                                 Dart_Handle native_scenes) {
+  std::vector<int64_t> view_ids =
+      tonic::DartConverter<std::vector<int64_t>>::FromDart(native_view_ids);
+  std::vector<Scene*> scenes =
+      tonic::DartConverter<std::vector<Scene*>>::FromDart(native_scenes);
   UIDartState::ThrowIfUIOperationsProhibited();
-  UIDartState::Current()->platform_configuration()->client()->Render(scene);
+  UIDartState::Current()->platform_configuration()->client()->Render(view_ids,
+                                                                     scenes);
 }
 
 void PlatformConfigurationNativeApi::SetNeedsReportTimings(bool value) {
