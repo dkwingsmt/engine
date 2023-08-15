@@ -63,6 +63,9 @@ typedef _SetNeedsReportTimingsFunc = void Function(bool value);
 /// compilation errors or process terminating errors.
 typedef ErrorCallback = bool Function(Object exception, StackTrace stackTrace);
 
+/// Signature for [PlatformDispatcher.debugRenderScenesOverride].
+typedef RenderScenesCallback = void Function(List<int> viewIds, List<Scene> scenes);
+
 // A gesture setting value that indicates it has not been set by the engine.
 const double _kUnsetGestureSetting = -1.0;
 
@@ -116,9 +119,6 @@ class PlatformDispatcher {
   /// these. Use [instance] to access the singleton.
   PlatformDispatcher._() {
     _setNeedsReportTimings = _nativeSetNeedsReportTimings;
-    if (_implicitViewId != null) {
-      _views[_implicitViewId!] = FlutterView._(_implicitViewId!, this, const _ViewConfiguration());
-    }
   }
 
   /// The [PlatformDispatcher] singleton.
@@ -215,12 +215,27 @@ class PlatformDispatcher {
   ///   by the platform.
   FlutterView? get implicitView {
     final FlutterView? result = _views[_implicitViewId];
+    // Make sure [implicitView] agrees with `_implicitViewId`.
     assert((result != null) == (_implicitViewId != null),
       (_implicitViewId != null) ?
         'The implicit view ID is $_implicitViewId, but the implicit view does not exist.' :
         'The implicit view ID is null, but the implicit view exists.');
+    // Make sure [implicitView] never chages.
+    assert(() {
+      if (_debugRecordedLastImplicitView) {
+        assert(identical(_debugLastImplicitView, result),
+          'The implicitView has changed:\n'
+          'Last: $_debugLastImplicitView\nCurrent: $result');
+      } else {
+        _debugLastImplicitView = result;
+        _debugRecordedLastImplicitView = true;
+      }
+      return true;
+    }());
     return result;
   }
+  FlutterView? _debugLastImplicitView;
+  bool _debugRecordedLastImplicitView = false;
 
   /// A callback that is invoked whenever the [ViewConfiguration] of any of the
   /// [views] changes.
@@ -250,27 +265,27 @@ class PlatformDispatcher {
 
   // Called from the engine, via hooks.dart
   //
-  // Adds a new view with the specific view configuration. If the target view is
-  // the implicit view, then it's equivalent to _updateWindowMetrics.
-  // Otherwise, the target view must not exist.
+  // Adds a new view with the specific view configuration.
+  //
+  // The implicit view must be added before [implicitView] is first called,
+  // which is typically the main function.
   void _addView(int id, _ViewConfiguration viewConfiguration) {
-    // The implicit view is added at construction.
-    if (id != _implicitViewId) {
-      assert(!_views.containsKey(id), 'View ID $id already exists.');
-      _views[id] = FlutterView._(id, this, viewConfiguration);
-      _invoke(onMetricsChanged, _onMetricsChangedZone);
-    } else {
-      _updateWindowMetrics(id, viewConfiguration);
-    }
+    assert(!_views.containsKey(id), 'View ID $id already exists.');
+    _views[id] = FlutterView._(id, this, viewConfiguration);
+    _invoke(onMetricsChanged, _onMetricsChangedZone);
   }
 
   // Called from the engine, via hooks.dart
   //
   // Removes the specific view.
   //
-  // The target view must not be the implicit view, and must exist.
+  // The target view must must exist. The implicit view must not be removed,
+  // or an assertion will be triggered.
   void _removeView(int id) {
     assert(id != _implicitViewId, 'The implicit view #$id can not be removed.');
+    if (id == _implicitViewId) {
+      return;
+    }
     assert(_views.containsKey(id), 'View ID $id does not exist.');
     _views.remove(id);
     _invoke(onMetricsChanged, _onMetricsChangedZone);
@@ -354,6 +369,57 @@ class PlatformDispatcher {
   void _drawFrame() {
     _invoke(onDrawFrame, _onDrawFrameZone);
   }
+
+  /// Updates multiple view's rendering on the GPU with the newly provided
+  /// [Scene]s.
+  ///
+  /// This function or [FlutterView.render] can only be called once
+  /// after a [PlatformDispatcher.scheduleFrame]. If this method or
+  /// [FlutterView.render] is called a second time after
+  /// [PlatformDispatcher.scheduleFrame] (or is called before the first
+  /// [PlatformDispatcher.scheduleFrame]), the call will be ignored.
+  ///
+  /// To record graphical operations, first create a [PictureRecorder], then
+  /// construct a [Canvas], passing that [PictureRecorder] to its constructor.
+  /// After issuing all the graphical operations, call the
+  /// [PictureRecorder.endRecording] function on the [PictureRecorder] to obtain
+  /// the final [Picture] that represents the issued graphical operations.
+  ///
+  /// Next, create a [SceneBuilder], and add the [Picture] to it using
+  /// [SceneBuilder.addPicture]. With the [SceneBuilder.build] method you can
+  /// then obtain a [Scene] object, which you can display to the user via this
+  /// [renderScenes] function.
+  ///
+  /// See also:
+  ///
+  /// * [SchedulerBinding], the Flutter framework class which manages the
+  ///   scheduling of frames.
+  /// * [RendererBinding], the Flutter framework class which manages layout and
+  ///   painting.
+  void renderScenes(Map<FlutterView, Scene> scenes) {
+    final List<int> viewIds = <int>[];
+    final List<Scene> sceneList = <Scene>[];
+    scenes.forEach((FlutterView view, Scene scene) {
+      viewIds.add(view.viewId);
+      sceneList.add(scene);
+    });
+    RenderScenesCallback renderScenesCallback = _renderScenes;
+    assert(() {
+      if (debugRenderScenesOverride != null) {
+        renderScenesCallback = debugRenderScenesOverride!;
+      }
+      return true;
+    }());
+    renderScenesCallback(viewIds, sceneList);
+  }
+
+  @Native<Void Function(Handle, Handle)>(symbol: 'PlatformConfigurationNativeApi::RenderScenes')
+  external static void _renderScenes(List<int> viewIds, List<Scene> scenes);
+  /// Used in unit tests to override the native function with which
+  /// [renderScenes] sends scenes to the engine.
+  ///
+  /// In production, setting this property is a no-op.
+  RenderScenesCallback? debugRenderScenesOverride;
 
   /// A callback that is invoked when pointer data is available.
   ///
@@ -1244,6 +1310,16 @@ class PlatformDispatcher {
 
   @Native<Handle Function()>(symbol: 'PlatformConfigurationNativeApi::DefaultRouteName')
   external static String _defaultRouteName();
+
+  /// Used in unit tests to reset overridden methods.
+  ///
+  /// In production, this method is a no-op.
+  void debugClearOverride() {
+    assert(() {
+      debugRenderScenesOverride = null;
+      return true;
+    }());
+  }
 }
 
 /// Configuration of the platform.

@@ -208,7 +208,7 @@ class Rasterizer final : public SnapshotDelegate,
   //----------------------------------------------------------------------------
   /// @brief      Deallocate the resources for displaying a view.
   ///
-  ///             This method should be called a view is removed.
+  ///             This method should be called when a view is removed.
   ///
   ///             The rasterizer don't need views to be registered. Last-frame
   ///             states for views are recorded when layer trees are rasterized
@@ -626,7 +626,7 @@ class Rasterizer final : public SnapshotDelegate,
   // Set when we need attempt to rasterize the layer tree again. This layer_tree
   // has not successfully rasterized. This can happen due to the change in the
   // thread configuration. This will be inserted to the front of the pipeline.
-  std::vector<LayerTreeTask> resubmitted_tasks_;
+  std::list<LayerTreeTask> resubmitted_tasks_;
   std::unique_ptr<FrameTimingsRecorder> resubmitted_recorder_;
   fml::closure next_frame_callback_;
   bool user_override_resource_cache_bytes_;

@@ -25,7 +25,7 @@ class RuntimeDelegate {
 
   virtual void ScheduleFrame(bool regenerate_layer_tree = true) = 0;
 
-  virtual void Render(std::vector<LayerTreeTask> tasks) = 0;
+  virtual void Render(std::list<LayerTreeTask> render_tasks) = 0;
 
   virtual void UpdateSemantics(SemanticsNodeUpdates update,
                                CustomAccessibilityActionUpdates actions) = 0;

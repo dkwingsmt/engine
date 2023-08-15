@@ -33,11 +33,11 @@ namespace {
 constexpr int64_t kImplicitViewId = 0;
 constexpr float kDevicePixelRatio = 2.0f;
 
-std::vector<LayerTreeTask> SingleLayerTreeMap(
+std::list<LayerTreeTask> SingleLayerTreeMap(
     int64_t view_id,
     std::unique_ptr<LayerTree> layer_tree,
     float pixel_ratio) {
-  std::vector<LayerTreeTask> tasks;
+  std::list<LayerTreeTask> tasks;
   tasks.emplace_back(view_id, std::move(layer_tree), pixel_ratio);
   return tasks;
 }
@@ -1056,6 +1056,7 @@ TEST(RasterizerTest, TeardownNoSurface) {
 TEST(RasterizerTest, presentationTimeSetWhenVsyncTargetInFuture) {
   GTEST_SKIP() << "eglPresentationTime is disabled due to "
                   "https://github.com/flutter/flutter/issues/112503";
+#if false
   std::string test_name =
       ::testing::UnitTest::GetInstance()->current_test_info()->name();
   ThreadHost thread_host("io.flutter.test." + test_name + ".",
@@ -1138,11 +1139,13 @@ TEST(RasterizerTest, presentationTimeSetWhenVsyncTargetInFuture) {
     latch.Signal();
   });
   latch.Wait();
+#endif  // false
 }
 
 TEST(RasterizerTest, presentationTimeNotSetWhenVsyncTargetInPast) {
   GTEST_SKIP() << "eglPresentationTime is disabled due to "
                   "https://github.com/flutter/flutter/issues/112503";
+#if false
   std::string test_name =
       ::testing::UnitTest::GetInstance()->current_test_info()->name();
   ThreadHost thread_host("io.flutter.test." + test_name + ".",
@@ -1216,6 +1219,7 @@ TEST(RasterizerTest, presentationTimeNotSetWhenVsyncTargetInPast) {
     latch.Signal();
   });
   latch.Wait();
+#endif  // false
 }
 
 }  // namespace flutter

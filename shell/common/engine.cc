@@ -426,7 +426,9 @@ void Engine::HandleSettingsPlatformMessage(PlatformMessage* message) {
 void Engine::DispatchPointerDataPacket(
     std::unique_ptr<PointerDataPacket> packet,
     uint64_t trace_flow_id) {
-  TRACE_EVENT0("flutter", "Engine::DispatchPointerDataPacket");
+  TRACE_EVENT0_WITH_FLOW_IDS("flutter", "Engine::DispatchPointerDataPacket",
+                             /*flow_id_count=*/1,
+                             /*flow_ids=*/&trace_flow_id);
   TRACE_FLOW_STEP("flutter", "PointerEvent", trace_flow_id);
   pointer_data_dispatcher_->DispatchPacket(std::move(packet), trace_flow_id);
 }
@@ -457,8 +459,8 @@ void Engine::ScheduleFrame(bool regenerate_layer_tree) {
   animator_->RequestFrame(regenerate_layer_tree);
 }
 
-void Engine::Render(std::vector<LayerTreeTask> tasks) {
-  animator_->Render(std::move(tasks));
+void Engine::Render(std::list<LayerTreeTask> render_tasks) {
+  animator_->Render(std::move(render_tasks));
 }
 
 void Engine::UpdateSemantics(SemanticsNodeUpdates update,

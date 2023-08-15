@@ -128,7 +128,7 @@ void Animator::BeginFrame(
   }
 }
 
-void Animator::Render(std::vector<LayerTreeTask> tasks) {
+void Animator::Render(std::list<LayerTreeTask> render_tasks) {
   has_rendered_ = true;
 
   if (!frame_timings_recorder_) {
@@ -147,7 +147,7 @@ void Animator::Render(std::vector<LayerTreeTask> tasks) {
       frame_timings_recorder_->GetVsyncTargetTime());
 
   auto layer_tree_item = std::make_unique<FrameItem>(
-      std::move(tasks), std::move(frame_timings_recorder_));
+      std::move(render_tasks), std::move(frame_timings_recorder_));
   // Commit the pending continuation.
   PipelineProduceResult result =
       producer_continuation_.Complete(std::move(layer_tree_item));

@@ -419,6 +419,8 @@ Shell::Shell(DartVMRef vm,
       volatile_path_tracker_(std::move(volatile_path_tracker)),
       weak_factory_gpu_(nullptr),
       weak_factory_(this) {
+  FML_CHECK(!settings.enable_software_rendering || !settings.enable_impeller)
+      << "Software rendering is incompatible with Impeller.";
   FML_CHECK(vm_) << "Must have access to VM to create a shell.";
   FML_DCHECK(task_runners_.IsValid());
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
@@ -990,9 +992,6 @@ void Shell::OnPlatformViewSetViewportMetrics(int64_t view_id,
       });
 
   {
-    // TODO(dkwingsmt): Use the correct view ID when this method supports
-    // multi-view.
-    int64_t view_id = kFlutterImplicitViewId;
     std::scoped_lock<std::mutex> lock(resize_mutex_);
     expected_frame_sizes_[view_id] =
         SkISize::Make(metrics.physical_width, metrics.physical_height);
@@ -1036,7 +1035,9 @@ void Shell::OnPlatformViewDispatchPlatformMessage(
 // |PlatformView::Delegate|
 void Shell::OnPlatformViewDispatchPointerDataPacket(
     std::unique_ptr<PointerDataPacket> packet) {
-  TRACE_EVENT0("flutter", "Shell::OnPlatformViewDispatchPointerDataPacket");
+  TRACE_EVENT0_WITH_FLOW_IDS(
+      "flutter", "Shell::OnPlatformViewDispatchPointerDataPacket",
+      /*flow_id_count=*/1, /*flow_ids=*/&next_pointer_flow_id_);
   TRACE_FLOW_BEGIN("flutter", "PointerEvent", next_pointer_flow_id_);
   FML_DCHECK(is_set_up_);
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
@@ -1944,20 +1945,10 @@ bool Shell::OnServiceProtocolRenderFrameWithRasterStats(
     rapidjson::Document* response) {
   FML_DCHECK(task_runners_.GetRasterTaskRunner()->RunsTasksOnCurrentThread());
 
-  // When rendering the last layer tree, we do not need to build a frame,
-  // invariants in FrameTimingRecorder enforce that raster timings can not be
-  // set before build-end.
-  auto frame_timings_recorder = std::make_unique<FrameTimingsRecorder>();
-  const auto now = fml::TimePoint::Now();
-  frame_timings_recorder->RecordVsync(now, now);
-  frame_timings_recorder->RecordBuildStart(now);
-  frame_timings_recorder->RecordBuildEnd(now);
-
-  int success_count =
-      rasterizer_->DrawLastLayerTree(std::move(frame_timings_recorder),
-                                     /* enable_leaf_layer_tracing=*/true);
-
-  if (success_count > 0) {
+  // TODO(dkwingsmt): This method only handles view #0, including the snapshot
+  // and the frame size. We need to adapt this method to multi-view.
+  // https://github.com/flutter/flutter/issues/131892
+  if (rasterizer_->HasLastLayerTree()) {
     auto& allocator = response->GetAllocator();
     response->SetObject();
     response->AddMember("type", "RenderFrameWithRasterStats", allocator);
@@ -1975,8 +1966,6 @@ bool Shell::OnServiceProtocolRenderFrameWithRasterStats(
 
     response->AddMember("snapshots", snapshots, allocator);
 
-    // TODO(dkwingsmt): Not sure what these fields are supposed to be after
-    // multi-view. For now it sends the implicit view's dimension as before.
     const auto& frame_size = ExpectedFrameSize(kFlutterImplicitViewId);
     response->AddMember("frame_width", frame_size.width(), allocator);
     response->AddMember("frame_height", frame_size.height(), allocator);
@@ -2037,12 +2026,9 @@ void Shell::AddView(int64_t view_id, const ViewportMetrics& viewport_metrics) {
   TRACE_EVENT0("flutter", "Shell::AddView");
   FML_DCHECK(is_set_up_);
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
-  if (view_id == kFlutterImplicitViewId) {
-    FML_DLOG(ERROR) << "Unexpected request to add the implicit view #"
-                    << kFlutterImplicitViewId
-                    << ". This view should never be added. This call is no-op.";
-    return;
-  }
+  FML_DCHECK(view_id != kFlutterImplicitViewId)
+      << "Unexpected request to add the implicit view #"
+      << kFlutterImplicitViewId << ". This view should never be added.";
 
   task_runners_.GetUITaskRunner()->PostTask([engine = engine_->GetWeakPtr(),  //
                                              viewport_metrics,                //
@@ -2058,19 +2044,13 @@ void Shell::RemoveView(int64_t view_id) {
   TRACE_EVENT0("flutter", "Shell::RemoveView");
   FML_DCHECK(is_set_up_);
   FML_DCHECK(task_runners_.GetPlatformTaskRunner()->RunsTasksOnCurrentThread());
-  if (view_id == kFlutterImplicitViewId) {
-    FML_DLOG(ERROR)
-        << "Unexpected request to remove the implicit view #"
-        << kFlutterImplicitViewId
-        << ". This view should never be removed. This call is no-op.";
-    return;
-  }
+  FML_DCHECK(view_id != kFlutterImplicitViewId)
+      << "Unexpected request to remove the implicit view #"
+      << kFlutterImplicitViewId << ". This view should never be removed.";
 
   expected_frame_sizes_.erase(view_id);
-  fml::AutoResetWaitableEvent latch;
   task_runners_.GetUITaskRunner()->PostTask(
-      [&latch,                                  //
-           & task_runners = task_runners_,      //
+      [&task_runners = task_runners_,           //
        engine = engine_->GetWeakPtr(),          //
        rasterizer = rasterizer_->GetWeakPtr(),  //
        view_id                                  //
@@ -2087,10 +2067,7 @@ void Shell::RemoveView(int64_t view_id) {
             rasterizer->CollectView(view_id);
           }
         });
-        latch.Signal();
       });
-
-  latch.Wait();
 }
 
 Rasterizer::Screenshot Shell::Screenshot(

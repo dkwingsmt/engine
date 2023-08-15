@@ -69,8 +69,7 @@ class PlatformConfigurationClient {
   /// @brief      Updates the client's rendering on the GPU with the newly
   ///             provided Scenes.
   ///
-  virtual void Render(std::vector<int64_t>& view_ids,
-                      std::vector<Scene*>& scenes) = 0;
+  virtual void Render(std::unordered_map<int64_t, Scene*> scenes) = 0;
 
   //--------------------------------------------------------------------------
   /// @brief      Receives an updated semantics tree from the Framework.
@@ -263,8 +262,8 @@ class PlatformConfiguration final {
   /// @brief      Notify the framework that a new view is available.
   ///
   ///             A view must be added before other methods can refer to it,
-  ///             including the implicit view. Adding a view that has been
-  ///             added triggers assertion.
+  ///             including the implicit view. Adding a view that already exists
+  ///             triggers an assertion.
   ///
   /// @param[in]  view_id           The ID of the new view.
   /// @param[in]  viewport_metrics  The initial viewport metrics for the view.
@@ -274,7 +273,10 @@ class PlatformConfiguration final {
   //----------------------------------------------------------------------------
   /// @brief      Notify the framework that a view is no longer available.
   ///
-  ///             Removing a view that has not been added triggers assertion.
+  ///             Removing a view that does not exist triggers an assertion.
+  ///
+  ///             The implicit view (kFlutterImplicitViewId) should never be
+  ///             removed. Doing so triggers an assertion.
   ///
   /// @param[in]  view_id  The ID of the view.
   ///
@@ -510,7 +512,7 @@ class PlatformConfigurationNativeApi {
 
   static void ScheduleFrame();
 
-  static void RenderViews(Dart_Handle view_ids, Dart_Handle scenes);
+  static void RenderScenes(Dart_Handle view_ids, Dart_Handle scenes);
 
   static void UpdateSemantics(SemanticsUpdate* update);
 

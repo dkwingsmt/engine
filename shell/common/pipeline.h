@@ -117,12 +117,14 @@ class Pipeline {
         std::function<PipelineProduceResult(ResourcePtr, size_t)>;
 
     Continuation continuation_;
-    size_t trace_id_;
+    uint64_t trace_id_;
 
-    ProducerContinuation(const Continuation& continuation, size_t trace_id)
+    ProducerContinuation(const Continuation& continuation, uint64_t trace_id)
         : continuation_(continuation), trace_id_(trace_id) {
+      TRACE_EVENT_ASYNC_BEGIN0_WITH_FLOW_IDS("flutter", "PipelineItem",
+                                             trace_id_, /*flow_id_count=*/1,
+                                             /*flow_ids=*/&trace_id);
       TRACE_FLOW_BEGIN("flutter", "PipelineItem", trace_id_);
-      TRACE_EVENT_ASYNC_BEGIN0("flutter", "PipelineItem", trace_id_);
       TRACE_EVENT_ASYNC_BEGIN0("flutter", "PipelineProduce", trace_id_);
     }
 
@@ -257,11 +259,11 @@ class Pipeline {
 };
 
 struct FrameItem {
-  FrameItem(std::vector<LayerTreeTask> tasks,
+  FrameItem(std::list<LayerTreeTask> tasks,
             std::unique_ptr<FrameTimingsRecorder> frame_timings_recorder)
       : tasks(std::move(tasks)),
         frame_timings_recorder(std::move(frame_timings_recorder)) {}
-  std::vector<LayerTreeTask> tasks;
+  std::list<LayerTreeTask> tasks;
   std::unique_ptr<FrameTimingsRecorder> frame_timings_recorder;
 };
 

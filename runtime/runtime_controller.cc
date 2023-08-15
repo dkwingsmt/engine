@@ -113,6 +113,9 @@ std::unique_ptr<RuntimeController> RuntimeController::Clone() const {
 }
 
 bool RuntimeController::FlushRuntimeStateToIsolate() {
+  FML_DCHECK(!has_flushed_runtime_state_)
+      << "FlushRuntimeStateToIsolate is called more than once somehow.";
+  has_flushed_runtime_state_ = true;
   for (auto const& [view_id, viewport_metrics] :
        platform_data_.viewport_metrics_for_views) {
     if (!AddView(view_id, viewport_metrics)) {
@@ -344,13 +347,11 @@ void RuntimeController::ScheduleFrame() {
 }
 
 // |PlatformConfigurationClient|
-void RuntimeController::Render(std::vector<int64_t>& view_ids,
-                               std::vector<Scene*>& scenes) {
-  FML_DCHECK(view_ids.size() == scenes.size());
-  std::vector<LayerTreeTask> tasks;
-  tasks.reserve(view_ids.size());
-  for (size_t task_index = 0; task_index < view_ids.size(); task_index += 1) {
-    int64_t view_id = view_ids[task_index];
+void RuntimeController::Render(std::unordered_map<int64_t, Scene*> scenes) {
+  std::list<LayerTreeTask> tasks;
+  for (auto& scene_pair : scenes) {
+    int64_t view_id = scene_pair.first;
+    Scene* scene = scene_pair.second;
     auto window =
         UIDartState::Current()->platform_configuration()->get_window(view_id);
     if (window == nullptr) {
@@ -363,8 +364,8 @@ void RuntimeController::Render(std::vector<int64_t>& view_ids,
         viewport_metrics.device_pixel_ratio <= 0) {
       continue;
     }
-    auto layer_tree = scenes[task_index]->takeLayerTree(
-        viewport_metrics.physical_width, viewport_metrics.physical_height);
+    auto layer_tree = scene->takeLayerTree(viewport_metrics.physical_width,
+                                           viewport_metrics.physical_height);
     if (layer_tree == nullptr) {
       continue;
     }

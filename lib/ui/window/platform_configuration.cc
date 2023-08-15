@@ -89,8 +89,11 @@ void PlatformConfiguration::AddView(int64_t view_id,
 }
 
 void PlatformConfiguration::RemoveView(int64_t view_id) {
-  FML_DCHECK(view_id != kFlutterImplicitViewId);
-  windows_.erase(view_id);
+  FML_DCHECK(view_id != kFlutterImplicitViewId)
+      << "The implicit view #" << view_id << " should never be removed.";
+  size_t erased_elements = windows_.erase(view_id);
+  FML_DCHECK(erased_elements != 0) << "View #" << view_id << " doesn't exist.";
+  (void)erased_elements;
   std::shared_ptr<tonic::DartState> dart_state =
       remove_view_.dart_state().lock();
   if (!dart_state) {
@@ -365,15 +368,20 @@ void PlatformConfiguration::CompletePlatformMessageResponse(
   response->Complete(std::make_unique<fml::DataMapping>(std::move(data)));
 }
 
-void PlatformConfigurationNativeApi::RenderViews(Dart_Handle native_view_ids,
-                                                 Dart_Handle native_scenes) {
+void PlatformConfigurationNativeApi::RenderScenes(Dart_Handle native_view_ids,
+                                                  Dart_Handle native_scenes) {
   std::vector<int64_t> view_ids =
       tonic::DartConverter<std::vector<int64_t>>::FromDart(native_view_ids);
   std::vector<Scene*> scenes =
       tonic::DartConverter<std::vector<Scene*>>::FromDart(native_scenes);
+  FML_DCHECK(view_ids.size() == scenes.size());
+  std::unordered_map<int64_t, Scene*> scene_map;
+  for (size_t scene_idx = 0; scene_idx < view_ids.size(); scene_idx += 1) {
+    scene_map[view_ids[scene_idx]] = scenes[scene_idx];
+  }
   UIDartState::ThrowIfUIOperationsProhibited();
-  UIDartState::Current()->platform_configuration()->client()->Render(view_ids,
-                                                                     scenes);
+  UIDartState::Current()->platform_configuration()->client()->Render(
+      std::move(scene_map));
 }
 
 void PlatformConfigurationNativeApi::SetNeedsReportTimings(bool value) {
