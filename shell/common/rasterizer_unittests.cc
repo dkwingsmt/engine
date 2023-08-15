@@ -84,9 +84,10 @@ class MockExternalViewEmbedder : public ExternalViewEmbedder {
                PostPrerollResult(
                    fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger));
   MOCK_METHOD1(CompositeEmbeddedView, DlCanvas*(int64_t view_id));
-  MOCK_METHOD3(SubmitFrame,
+  MOCK_METHOD4(SubmitFrame,
                void(GrDirectContext* context,
                     const std::shared_ptr<impeller::AiksContext>& aiks_context,
+                    int64_t view_id,
                     std::unique_ptr<SurfaceFrame> frame));
   MOCK_METHOD2(EndFrame,
                void(bool should_resubmit_frame,
@@ -434,7 +435,8 @@ TEST(RasterizerTest,
 
   // The DrawLastLayerTree() will respectively call BeginFrame(), SubmitFrame()
   // and EndFrame() one more time, totally 2 times.
-  rasterizer->DrawLastLayerTree(CreateFinishedBuildRecorder());
+  rasterizer->DrawLastLayerTree(CreateFinishedBuildRecorder(),
+                                kDevicePixelRatio);
 }
 
 TEST(RasterizerTest, externalViewEmbedderDoesntEndFrameWhenNoSurfaceIsSet) {

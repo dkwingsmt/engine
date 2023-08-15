@@ -67,7 +67,7 @@ class PlatformConfigurationClient {
 
   //--------------------------------------------------------------------------
   /// @brief      Updates the client's rendering on the GPU with the newly
-  ///             provided Scene.
+  ///             provided Scenes.
   ///
   virtual void Render(std::unordered_map<int64_t, Scene*> scenes) = 0;
 

@@ -135,6 +135,7 @@ void ExternalViewEmbedder::EndFrame(
 void ExternalViewEmbedder::SubmitFrame(
     GrDirectContext* context,
     const std::shared_ptr<impeller::AiksContext>& aiks_context,
+    int64_t view_id,
     std::unique_ptr<flutter::SurfaceFrame> frame) {
   TRACE_EVENT0("flutter", "ExternalViewEmbedder::SubmitFrame");
   std::vector<std::unique_ptr<SurfaceProducerSurface>> frame_surfaces;
