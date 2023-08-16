@@ -137,10 +137,8 @@ void Animator::BeginFrame(
   }
 }
 
-void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
-                      float device_pixel_ratio) {
+void Animator::Render(std::list<LayerTreeTask> render_tasks) {
   has_rendered_ = true;
-  last_layer_tree_size_ = layer_tree->frame_size();
 
   if (!frame_timings_recorder_) {
     // Framework can directly call render with a built scene.
@@ -158,9 +156,8 @@ void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
   delegate_.OnAnimatorUpdateLatestFrameTargetTime(
       frame_timings_recorder_->GetVsyncTargetTime());
 
-  auto layer_tree_item = std::make_unique<LayerTreeItem>(
-      std::move(layer_tree), std::move(frame_timings_recorder_),
-      device_pixel_ratio);
+  auto layer_tree_item = std::make_unique<FrameItem>(
+      std::move(render_tasks), std::move(frame_timings_recorder_));
   // Commit the pending continuation.
   PipelineProduceResult result =
       producer_continuation_.Complete(std::move(layer_tree_item));
@@ -269,17 +266,8 @@ void Animator::ScheduleMaybeClearTraceFlowIds() {
           return;
         }
         if (!self->frame_scheduled_ && !self->trace_flow_ids_.empty()) {
-          size_t flow_id_count = self->trace_flow_ids_.size();
-          std::unique_ptr<uint64_t[]> flow_ids =
-              std::make_unique<uint64_t[]>(flow_id_count);
-          for (size_t i = 0; i < flow_id_count; ++i) {
-            flow_ids.get()[i] = self->trace_flow_ids_.at(i);
-          }
-
-          TRACE_EVENT0_WITH_FLOW_IDS(
-              "flutter", "Animator::ScheduleMaybeClearTraceFlowIds - callback",
-              flow_id_count, flow_ids.get());
-
+          TRACE_EVENT0("flutter",
+                       "Animator::ScheduleMaybeClearTraceFlowIds - callback");
           while (!self->trace_flow_ids_.empty()) {
             auto flow_id = self->trace_flow_ids_.front();
             TRACE_FLOW_END("flutter", "PointerEvent", flow_id);

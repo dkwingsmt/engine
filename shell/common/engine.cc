@@ -459,18 +459,20 @@ void Engine::ScheduleFrame(bool regenerate_layer_tree) {
   animator_->RequestFrame(regenerate_layer_tree);
 }
 
-void Engine::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
-                    float device_pixel_ratio) {
-  if (!layer_tree) {
-    return;
+void Engine::Render(std::list<LayerTreeTask> render_tasks) {
+  auto task_iter = render_tasks.begin();
+  while (task_iter != render_tasks.end()) {
+    if (task_iter->layer_tree == nullptr ||
+        task_iter->layer_tree->frame_size().isEmpty() ||
+        task_iter->device_pixel_ratio <= 0.0f) {
+      task_iter = render_tasks.erase(task_iter);
+    } else {
+      ++task_iter;
+    }
   }
-
-  // Ensure frame dimensions are sane.
-  if (layer_tree->frame_size().isEmpty() || device_pixel_ratio <= 0.0f) {
-    return;
+  if (!render_tasks.empty()) {
+    animator_->Render(std::move(render_tasks));
   }
-
-  animator_->Render(std::move(layer_tree), device_pixel_ratio);
 }
 
 void Engine::UpdateSemantics(SemanticsNodeUpdates update,
