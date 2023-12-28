@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #import <objc/message.h>
+#include <functional>
 #include <memory>
+#include <unordered_map>
 
 #import "FlutterEmbedderKeyResponder.h"
 #import "KeyCodeMap_Internal.h"
@@ -12,6 +14,9 @@
 #import "flutter/shell/platform/embedder/embedder.h"
 
 namespace {
+
+using AsyncKeyCallback = std::function<void(bool handled)>;
+using AsyncKeyCallbackMap = std::unordered_map<uint64_t /*respondsId*/, AsyncKeyCallback>;
 
 /**
  * Isolate the least significant 1-bit.
@@ -264,13 +269,12 @@ struct FlutterKeyPendingResponse {
  * thrown.
  */
 @interface FlutterKeyCallbackGuard : NSObject
-- (nonnull instancetype)initWithCallback:(FlutterAsyncKeyCallback)callback;
+- (nonnull instancetype)initWithCallback:(AsyncKeyCallback)callback;
 
 /**
  * Handle the callback by storing it to pending responses.
  */
-- (void)pendTo:(nonnull NSMutableDictionary<NSNumber*, FlutterAsyncKeyCallback>*)pendingResponses
-        withId:(uint64_t)responseId;
+- (void)pendTo:(nonnull AsyncKeyCallbackMap*)pendingResponses withId:(uint64_t)responseId;
 
 /**
  * Handle the callback by calling it with a result.
@@ -291,9 +295,9 @@ struct FlutterKeyPendingResponse {
 @implementation FlutterKeyCallbackGuard {
   // The callback is declared in the implemnetation block to avoid being
   // accessed directly.
-  FlutterAsyncKeyCallback _callback;
+  AsyncKeyCallback _callback;
 }
-- (nonnull instancetype)initWithCallback:(FlutterAsyncKeyCallback)callback {
+- (nonnull instancetype)initWithCallback:(AsyncKeyCallback)callback {
   self = [super init];
   if (self != nil) {
     _callback = callback;
@@ -303,13 +307,12 @@ struct FlutterKeyPendingResponse {
   return self;
 }
 
-- (void)pendTo:(nonnull NSMutableDictionary<NSNumber*, FlutterAsyncKeyCallback>*)pendingResponses
-        withId:(uint64_t)responseId {
+- (void)pendTo:(nonnull AsyncKeyCallbackMap*)pendingResponses withId:(uint64_t)responseId {
   NSAssert(!_handled, @"This callback has been handled by %@.", _debugHandleSource);
   if (_handled) {
     return;
   }
-  pendingResponses[@(responseId)] = _callback;
+  (*pendingResponses)[responseId] = std::move(_callback);
   _handled = TRUE;
   NSAssert(
       ((_debugHandleSource = [NSString stringWithFormat:@"pending event %llu", responseId]), TRUE),
@@ -375,14 +378,6 @@ struct FlutterKeyPendingResponse {
  * A self-incrementing ID used to label key events sent to the framework.
  */
 @property(nonatomic) uint64_t responseId;
-
-/**
- * A map of unresponded key events sent to the framework.
- *
- * Its values are |responseId|s, and keys are the callback that was received
- * along with the event.
- */
-@property(nonatomic) NSMutableDictionary<NSNumber*, FlutterAsyncKeyCallback>* pendingResponses;
 
 /**
  * Compare the last modifier flags and the current, and dispatch synthesized
@@ -470,7 +465,15 @@ struct FlutterKeyPendingResponse {
 
 @end
 
-@implementation FlutterEmbedderKeyResponder
+@implementation FlutterEmbedderKeyResponder {
+  /**
+   * A map of unresponded key events sent to the framework.
+   *
+   * Its values are |responseId|s, and keys are the callback that was received
+   * along with the event.
+   */
+  AsyncKeyCallbackMap* _pendingResponses;
+}
 
 @synthesize layoutMap;
 
@@ -479,7 +482,7 @@ struct FlutterKeyPendingResponse {
   if (self != nil) {
     _sendEvent = sendEvent;
     _pressingRecords = [NSMutableDictionary dictionary];
-    _pendingResponses = [NSMutableDictionary dictionary];
+    _pendingResponses = new AsyncKeyCallbackMap;
     _responseId = 1;
     _lastModifierFlagsOfInterest = 0;
     _modifierFlagOfInterestMask = computeModifierFlagOfInterestMask();
@@ -487,12 +490,16 @@ struct FlutterKeyPendingResponse {
   return self;
 }
 
+- (void)dealloc {
+  delete _pendingResponses;
+}
+
 - (void)handleEvent:(NSEvent*)event callback:(FlutterAsyncKeyCallback)callback {
   // The conversion algorithm relies on a non-nil callback to properly compute
   // `synthesized`.
   NSAssert(callback != nil, @"The callback must not be nil.");
-  FlutterKeyCallbackGuard* guardedCallback =
-      [[FlutterKeyCallbackGuard alloc] initWithCallback:callback];
+  FlutterKeyCallbackGuard* guardedCallback = [[FlutterKeyCallbackGuard alloc]
+      initWithCallback:[callback](bool handle) { callback(handle); }];
   switch (event.type) {
     case NSEventTypeKeyDown:
       [self handleDownEvent:event callback:guardedCallback];
@@ -775,14 +782,15 @@ struct FlutterKeyPendingResponse {
 }
 
 - (void)handleResponse:(BOOL)handled forId:(uint64_t)responseId {
-  FlutterAsyncKeyCallback callback = _pendingResponses[@(responseId)];
-  callback(handled);
-  [_pendingResponses removeObjectForKey:@(responseId)];
+  auto found_callback = _pendingResponses->find(responseId);
+  NSAssert(found_callback != _pendingResponses->end(), @"Invalid response ID %llu", responseId);
+  found_callback->second(handled);
+  _pendingResponses->erase(found_callback);
 }
 
 - (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
                     timestamp:(NSTimeInterval)timestamp {
-  FlutterAsyncKeyCallback replyCallback = ^(BOOL handled) {
+  AsyncKeyCallback replyCallback = [](bool handled) {
     // Do nothing.
   };
   FlutterKeyCallbackGuard* guardedCallback =
