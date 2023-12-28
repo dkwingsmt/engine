@@ -261,75 +261,59 @@ struct FlutterKeyPendingResponse {
 };
 
 /**
- * Guards a |FlutterAsyncKeyCallback| to make sure it's handled exactly once
+ * Guards a |AsyncKeyCallback| to make sure it's handled exactly once
  * throughout |FlutterEmbedderKeyResponder.handleEvent|.
  *
- * A callback can either be handled with |pendTo:withId:|, or with |resolveTo:|.
+ * A callback can either be handled with |pendTo|, or with |resolveTo:|.
  * Either way, the callback cannot be handled again, or an assertion will be
  * thrown.
  */
-@interface FlutterKeyCallbackGuard : NSObject
-- (nonnull instancetype)initWithCallback:(AsyncKeyCallback)callback;
+class FlutterKeyCallbackGuard {
+ public:
+  FlutterKeyCallbackGuard(AsyncKeyCallback callback)
+      : _callback(callback), _handled(false), _sent_any_events(false) {}
 
-/**
- * Handle the callback by storing it to pending responses.
- */
-- (void)pendTo:(nonnull AsyncKeyCallbackMap*)pendingResponses withId:(uint64_t)responseId;
+  /**
+   * Handle the callback by storing it to pending responses.
+   */
+  void pendTo(AsyncKeyCallbackMap& pendingResponses, uint64_t responseId) {
+    FML_DCHECK(!_handled) << "This callback has been handled by " << _debug_handle_source.str();
+    if (_handled) {
+      return;
+    }
+    pendingResponses[responseId] = std::move(_callback);
+    _handled = TRUE;
+#ifndef NDEBUG
+    _debug_handle_source << "pending event " << responseId;
+#endif  // NDEBUG
+  }
 
-/**
- * Handle the callback by calling it with a result.
- */
-- (void)resolveTo:(BOOL)handled;
+  void resolveTo(bool handled) {
+    FML_DCHECK(!_handled) << "This callback has been handled by " << _debug_handle_source.str();
+    if (_handled) {
+      return;
+    }
+    _callback(handled);
+    _handled = true;
+#ifndef NDEBUG
+    _debug_handle_source << "resolved with " << _handled;
+#endif  // NDEBUG
+  }
 
-@property(nonatomic) BOOL handled;
-@property(nonatomic) BOOL sentAnyEvents;
-/**
- * A string indicating how the callback is handled.
- *
- * Only set in debug mode. Nil in release mode, or if the callback has not been
- * handled.
- */
-@property(nonatomic, copy) NSString* debugHandleSource;
-@end
+  bool handled() const { return _handled; }
 
-@implementation FlutterKeyCallbackGuard {
-  // The callback is declared in the implemnetation block to avoid being
-  // accessed directly.
+  bool sentAnyEvents() const { return _sent_any_events; }
+
+  void setSentEvents() { _sent_any_events = true; }
+
+ private:
   AsyncKeyCallback _callback;
-}
-- (nonnull instancetype)initWithCallback:(AsyncKeyCallback)callback {
-  self = [super init];
-  if (self != nil) {
-    _callback = callback;
-    _handled = FALSE;
-    _sentAnyEvents = FALSE;
-  }
-  return self;
-}
+  bool _handled;
+  bool _sent_any_events;
+  std::ostringstream _debug_handle_source;
 
-- (void)pendTo:(nonnull AsyncKeyCallbackMap*)pendingResponses withId:(uint64_t)responseId {
-  NSAssert(!_handled, @"This callback has been handled by %@.", _debugHandleSource);
-  if (_handled) {
-    return;
-  }
-  (*pendingResponses)[responseId] = std::move(_callback);
-  _handled = TRUE;
-  NSAssert(
-      ((_debugHandleSource = [NSString stringWithFormat:@"pending event %llu", responseId]), TRUE),
-      @"");
-}
-
-- (void)resolveTo:(BOOL)handled {
-  NSAssert(!_handled, @"This callback has been handled by %@.", _debugHandleSource);
-  if (_handled) {
-    return;
-  }
-  _callback(handled);
-  _handled = TRUE;
-  NSAssert(((_debugHandleSource = [NSString stringWithFormat:@"resolved with %d", _handled]), TRUE),
-           @"");
-}
-@end
+  FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
+};
 
 @interface FlutterEmbedderKeyResponder ()
 
@@ -392,7 +376,7 @@ struct FlutterKeyPendingResponse {
 - (void)synchronizeModifiers:(NSUInteger)currentFlags
                ignoringFlags:(NSUInteger)ignoringFlags
                    timestamp:(NSTimeInterval)timestamp
-                       guard:(nonnull FlutterKeyCallbackGuard*)guard;
+                       guard:(FlutterKeyCallbackGuard&)guard;
 
 /**
  * Update the pressing state.
@@ -406,7 +390,7 @@ struct FlutterKeyPendingResponse {
  * Send an event to the framework, expecting its response.
  */
 - (void)sendPrimaryFlutterEvent:(const FlutterKeyEvent&)event
-                       callback:(nonnull FlutterKeyCallbackGuard*)callback;
+                       callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Send a synthesized key event, never expecting its event result.
@@ -415,7 +399,7 @@ struct FlutterKeyPendingResponse {
  * called, it is only used to record whether an event is sent.
  */
 - (void)sendSynthesizedFlutterEvent:(const FlutterKeyEvent&)event
-                              guard:(FlutterKeyCallbackGuard*)guard;
+                              guard:(FlutterKeyCallbackGuard&)guard;
 
 /**
  * Send a CapsLock down event, then a CapsLock up event.
@@ -426,7 +410,7 @@ struct FlutterKeyPendingResponse {
  */
 - (void)sendCapsLockTapWithTimestamp:(NSTimeInterval)timestamp
                       synthesizeDown:(bool)synthesizeDown
-                            callback:(nonnull FlutterKeyCallbackGuard*)callback;
+                            callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Send a key event for a modifier key.
@@ -435,28 +419,27 @@ struct FlutterKeyPendingResponse {
                       timestamp:(NSTimeInterval)timestamp
                         keyCode:(unsigned short)keyCode
                     synthesized:(bool)synthesized
-                       callback:(nonnull FlutterKeyCallbackGuard*)callback;
+                       callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Processes a down event from the system.
  */
-- (void)handleDownEvent:(nonnull NSEvent*)event callback:(nonnull FlutterKeyCallbackGuard*)callback;
+- (void)handleDownEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Processes an up event from the system.
  */
-- (void)handleUpEvent:(nonnull NSEvent*)event callback:(nonnull FlutterKeyCallbackGuard*)callback;
+- (void)handleUpEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Processes an event from the system for the CapsLock key.
  */
-- (void)handleCapsLockEvent:(nonnull NSEvent*)event
-                   callback:(nonnull FlutterKeyCallbackGuard*)callback;
+- (void)handleCapsLockEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Processes a flags changed event from the system, where modifier keys are pressed or released.
  */
-- (void)handleFlagEvent:(nonnull NSEvent*)event callback:(nonnull FlutterKeyCallbackGuard*)callback;
+- (void)handleFlagEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
 
 /**
  * Processes the response from the framework.
@@ -498,23 +481,23 @@ struct FlutterKeyPendingResponse {
   // The conversion algorithm relies on a non-nil callback to properly compute
   // `synthesized`.
   NSAssert(callback != nil, @"The callback must not be nil.");
-  FlutterKeyCallbackGuard* guardedCallback = [[FlutterKeyCallbackGuard alloc]
-      initWithCallback:[callback](bool handle) { callback(handle); }];
+  auto guarded_callback =
+      std::make_unique<FlutterKeyCallbackGuard>([callback](bool handle) { callback(handle); });
   switch (event.type) {
     case NSEventTypeKeyDown:
-      [self handleDownEvent:event callback:guardedCallback];
+      [self handleDownEvent:event callback:*guarded_callback];
       break;
     case NSEventTypeKeyUp:
-      [self handleUpEvent:event callback:guardedCallback];
+      [self handleUpEvent:event callback:*guarded_callback];
       break;
     case NSEventTypeFlagsChanged:
-      [self handleFlagEvent:event callback:guardedCallback];
+      [self handleFlagEvent:event callback:*guarded_callback];
       break;
     default:
       NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
   }
-  NSAssert(guardedCallback.handled, @"The callback is returned without being handled.");
-  if (!guardedCallback.sentAnyEvents) {
+  NSAssert(guarded_callback->handled(), @"The callback is returned without being handled.");
+  if (!guarded_callback->sentAnyEvents()) {
     FlutterKeyEvent flutterEvent = {
         .struct_size = sizeof(FlutterKeyEvent),
         .timestamp = 0,
@@ -536,7 +519,7 @@ struct FlutterKeyPendingResponse {
 - (void)synchronizeModifiers:(NSUInteger)currentFlags
                ignoringFlags:(NSUInteger)ignoringFlags
                    timestamp:(NSTimeInterval)timestamp
-                       guard:(FlutterKeyCallbackGuard*)guard {
+                       guard:(FlutterKeyCallbackGuard&)guard {
   const NSUInteger updatingMask = _modifierFlagOfInterestMask & ~ignoringFlags;
   const NSUInteger currentFlagsOfInterest = currentFlags & updatingMask;
   const NSUInteger lastFlagsOfInterest = _lastModifierFlagsOfInterest & updatingMask;
@@ -576,25 +559,25 @@ struct FlutterKeyPendingResponse {
 }
 
 - (void)sendPrimaryFlutterEvent:(const FlutterKeyEvent&)event
-                       callback:(FlutterKeyCallbackGuard*)callback {
+                       callback:(FlutterKeyCallbackGuard&)callback {
   _responseId += 1;
   uint64_t responseId = _responseId;
   // The `pending` is released in `HandleResponse`.
   FlutterKeyPendingResponse* pending = new FlutterKeyPendingResponse{self, responseId};
-  [callback pendTo:_pendingResponses withId:responseId];
+  callback.pendTo(*_pendingResponses, responseId);
   _sendEvent(event, HandleResponse, pending);
-  callback.sentAnyEvents = TRUE;
+  callback.setSentEvents();
 }
 
 - (void)sendSynthesizedFlutterEvent:(const FlutterKeyEvent&)event
-                              guard:(FlutterKeyCallbackGuard*)guard {
+                              guard:(FlutterKeyCallbackGuard&)guard {
   _sendEvent(event, nullptr, nullptr);
-  guard.sentAnyEvents = TRUE;
+  guard.setSentEvents();
 }
 
 - (void)sendCapsLockTapWithTimestamp:(NSTimeInterval)timestamp
                       synthesizeDown:(bool)synthesizeDown
-                            callback:(FlutterKeyCallbackGuard*)callback {
+                            callback:(FlutterKeyCallbackGuard&)callback {
   // MacOS sends a down *or* an up when CapsLock is tapped, alternatively on
   // even taps and odd taps. A CapsLock down or CapsLock up should always be
   // converted to a down *and* an up, and the up should always be a synthesized
@@ -624,12 +607,12 @@ struct FlutterKeyPendingResponse {
                       timestamp:(NSTimeInterval)timestamp
                         keyCode:(unsigned short)keyCode
                     synthesized:(bool)synthesized
-                       callback:(FlutterKeyCallbackGuard*)callback {
+                       callback:(FlutterKeyCallbackGuard&)callback {
   uint64_t physicalKey = GetPhysicalKeyForKeyCode(keyCode);
   uint64_t logicalKey = GetLogicalKeyForModifier(keyCode, physicalKey);
   if (physicalKey == 0 || logicalKey == 0) {
     NSLog(@"Unrecognized modifier key: keyCode 0x%hx, physical key 0x%llx", keyCode, physicalKey);
-    [callback resolveTo:TRUE];
+    callback.resolveTo(true);
     return;
   }
   FlutterKeyEvent flutterEvent = {
@@ -649,7 +632,7 @@ struct FlutterKeyPendingResponse {
   }
 }
 
-- (void)handleDownEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard*)callback {
+- (void)handleDownEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
   uint64_t physicalKey = GetPhysicalKeyForKeyCode(event.keyCode);
   NSNumber* logicalKeyFromMap = self.layoutMap[@(event.keyCode)];
   uint64_t logicalKey = logicalKeyFromMap != nil ? [logicalKeyFromMap unsignedLongLongValue]
@@ -697,7 +680,7 @@ struct FlutterKeyPendingResponse {
   [self sendPrimaryFlutterEvent:flutterEvent callback:callback];
 }
 
-- (void)handleUpEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard*)callback {
+- (void)handleUpEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
   NSAssert(!event.isARepeat, @"Unexpected repeated Up event: keyCode %d, char %@, charIM %@",
            event.keyCode, event.characters, event.charactersIgnoringModifiers);
   [self synchronizeModifiers:event.modifierFlags
@@ -712,7 +695,7 @@ struct FlutterKeyPendingResponse {
     // key up event to the window where the corresponding key down occurred.
     // However this might happen in add-to-app scenarios if the focus is changed
     // from the native view to the Flutter view amid the key tap.
-    [callback resolveTo:TRUE];
+    callback.resolveTo(true);
     return;
   }
   [self updateKey:physicalKey asPressed:0];
@@ -729,7 +712,7 @@ struct FlutterKeyPendingResponse {
   [self sendPrimaryFlutterEvent:flutterEvent callback:callback];
 }
 
-- (void)handleCapsLockEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard*)callback {
+- (void)handleCapsLockEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
   [self synchronizeModifiers:event.modifierFlags
                ignoringFlags:NSEventModifierFlagCapsLock
                    timestamp:event.timestamp
@@ -739,11 +722,11 @@ struct FlutterKeyPendingResponse {
     [self sendCapsLockTapWithTimestamp:event.timestamp synthesizeDown:false callback:callback];
     _lastModifierFlagsOfInterest = _lastModifierFlagsOfInterest ^ NSEventModifierFlagCapsLock;
   } else {
-    [callback resolveTo:TRUE];
+    callback.resolveTo(true);
   }
 }
 
-- (void)handleFlagEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard*)callback {
+- (void)handleFlagEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
   NSNumber* targetModifierFlagObj = flutter::keyCodeToModifierFlag[@(event.keyCode)];
   NSUInteger targetModifierFlag =
       targetModifierFlagObj == nil ? 0 : [targetModifierFlagObj unsignedLongValue];
@@ -770,7 +753,7 @@ struct FlutterKeyPendingResponse {
 
   BOOL shouldBePressed = (event.modifierFlags & targetModifierFlag) != 0;
   if (lastTargetPressed == shouldBePressed) {
-    [callback resolveTo:TRUE];
+    callback.resolveTo(true);
     return;
   }
   _lastModifierFlagsOfInterest = _lastModifierFlagsOfInterest ^ targetModifierFlag;
@@ -790,15 +773,13 @@ struct FlutterKeyPendingResponse {
 
 - (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
                     timestamp:(NSTimeInterval)timestamp {
-  AsyncKeyCallback replyCallback = [](bool handled) {
-    // Do nothing.
-  };
-  FlutterKeyCallbackGuard* guardedCallback =
-      [[FlutterKeyCallbackGuard alloc] initWithCallback:replyCallback];
+  auto guarded_callback = std::make_unique<FlutterKeyCallbackGuard>([](bool handled) {
+    /* Do nothing */
+  });
   [self synchronizeModifiers:modifierFlags
                ignoringFlags:0
                    timestamp:timestamp
-                       guard:guardedCallback];
+                       guard:*guarded_callback];
 }
 
 - (nonnull NSDictionary*)getPressedState {
