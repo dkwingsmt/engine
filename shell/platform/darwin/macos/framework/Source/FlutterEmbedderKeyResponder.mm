@@ -18,6 +18,14 @@ namespace {
 using AsyncKeyCallback = std::function<void(bool handled)>;
 using AsyncKeyCallbackMap = std::unordered_map<uint64_t /*respondsId*/, AsyncKeyCallback>;
 
+NSDictionary* ToNSDictionary(std::unordered_map<uint64_t, uint64_t> source) {
+  NSMutableDictionary* result = [NSMutableDictionary dictionary];
+  for (auto [key, value] : source) {
+    result[@(key)] = @(value);
+  }
+  return result;
+}
+
 /**
  * Isolate the least significant 1-bit.
  *
@@ -273,10 +281,16 @@ class FlutterKeyCallbackGuard {
   FlutterKeyCallbackGuard(AsyncKeyCallback callback)
       : _callback(callback), _handled(false), _sent_any_events(false) {}
 
+  ~FlutterKeyCallbackGuard() {
+    if (!SentAnyEvents()) {
+      FML_LOG(ERROR) << "The callback is returned without being handled.";
+    }
+  }
+
   /**
    * Handle the callback by storing it to pending responses.
    */
-  void pendTo(AsyncKeyCallbackMap& pendingResponses, uint64_t responseId) {
+  void PendTo(AsyncKeyCallbackMap& pendingResponses, uint64_t responseId) {
     FML_DCHECK(!_handled) << "This callback has been handled by " << _debug_handle_source.str();
     if (_handled) {
       return;
@@ -288,7 +302,7 @@ class FlutterKeyCallbackGuard {
 #endif  // NDEBUG
   }
 
-  void resolveTo(bool handled) {
+  void ResolveTo(bool handled) {
     FML_DCHECK(!_handled) << "This callback has been handled by " << _debug_handle_source.str();
     if (_handled) {
       return;
@@ -300,11 +314,11 @@ class FlutterKeyCallbackGuard {
 #endif  // NDEBUG
   }
 
-  bool handled() const { return _handled; }
+  bool Handled() const { return _handled; }
 
-  bool sentAnyEvents() const { return _sent_any_events; }
+  bool SentAnyEvents() const { return _sent_any_events; }
 
-  void setSentEvents() { _sent_any_events = true; }
+  void SetSentEvents() { _sent_any_events = true; }
 
  private:
   AsyncKeyCallback _callback;
@@ -315,132 +329,348 @@ class FlutterKeyCallbackGuard {
   FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
 };
 
+struct NativeKeyData {
+  // Flutter timestamp in us.
+  double timestamp;
+  // Flutter physical key.
+  int64_t physical_key;
+  // Flutter logical key.
+  int64_t logical_key;
+  // The macOS NSEvent.character.
+  NSString* characters;
+  // Whether the event is down or repeat.
+  bool is_down;
+  // Whether the event is repeat.
+  bool is_repeat;
+  // The macOS modifier flag.
+  NSUInteger modifier_flag;
+};
+
+class KeyboardTracker {
+ public:
+  using SendEvent = std::function<void(const FlutterKeyEvent& event,
+                                            FlutterKeyEventCallback callback,
+                                            void* user_data)>;
+
+  KeyboardTracker(SendEvent send_event) : _send_event(send_event), _response_id(0),
+        _modifier_flag_of_interest_mask(computeModifierFlagOfInterestMask)
+  {}
+
+  std::unordered_map<uint64_t, uint64_t> GetPressedState() {
+    return _pressing_records;
+  }
+
+  void EnsureGuardReply(FlutterKeyCallbackGuard& guard) {
+    if (!guard.SentAnyEvents()) {
+      FlutterKeyEvent empty_event = {
+          .struct_size = sizeof(FlutterKeyEvent),
+          .timestamp = 0,
+          .type = kFlutterKeyEventTypeDown,
+          .physical = 0,
+          .logical = 0,
+          .character = nil,
+          .synthesized = false,
+      };
+      _send_event(&empty_event, nullptr, nullptr);
+    }
+  }
+
+  // Processes a down event from the system.
+  void HandleDownEvent(const NativeKeyData* event, FlutterKeyCallbackGuard& guard) {
+    SynchronizeModifiers(event->modifierFlags,
+                /*ignoringFlags=*/0,
+                    event->timestamp
+                        guard);
+
+    auto found_pressed_logical_key = _pressing_records.find(event->physical_key);
+    bool key_is_pressed = found_pressed_logical_key != _pressing_records.end();
+    if (key_is_pressed && !event->is_repeat) {
+      // This might happen in add-to-app scenarios if the focus is changed
+      // from the native view to the Flutter view amid the key tap.
+      //
+      // This might also happen when a key event is forged (such as by an
+      // IME) using the same keyCode as an unreleased key. See
+      // https://github.com/flutter/flutter/issues/82673#issuecomment-988661079
+      FlutterKeyEvent flutterEvent = {
+          .struct_size = sizeof(FlutterKeyEvent),
+          .timestamp = event.timestamp,
+          .type = kFlutterKeyEventTypeUp,
+          .physical = physical_key,
+          .logical = found_pressed_logical_key->second,
+          .character = nullptr,
+          .synthesized = true,
+      };
+      SendSynthesizedFlutterEvent(&flutterEvent, guard);
+      key_is_pressed = false;
+    }
+
+    if (!key_is_pressed) {
+      UpdateKeyPressedState(event->physical_key, event->logicalKey);
+    }
+
+    FlutterKeyEvent flutterEvent = {
+        .struct_size = sizeof(FlutterKeyEvent),
+        .timestamp = event.timestamp,
+        .type = key_is_pressed ? kFlutterKeyEventTypeRepeat : kFlutterKeyEventTypeDown,
+        .physical = physical_key,
+        .logical = key_is_pressed ? found_pressed_logical_key->second : logical_key,
+        .character = getEventString(event.characters),
+        .synthesized = false,
+    };
+    SendPrimaryFlutterEvent(&flutterEvent, callback);
+  }
+
+  void HandleUpEvent(const NativeKeyData* event, FlutterKeyCallbackGuard& guard) {
+    FML_DCHECK(!event->is_repeat) << "Unexpected repeated Up event";
+    SynchronizeModifiers(event->modifierFlags,
+                /*ignoringFlags=*/0,
+                    event->timestamp
+                        guard);
+
+    auto found_pressed_logical_key = _pressing_records.find(event->physical_key);
+    bool key_is_pressed = pressed_logical_key != _pressing_records.end();
+    if (!key_is_pressed) {
+      // Normally the key up events won't be missed since macOS always sends the
+      // key up event to the window where the corresponding key down occurred.
+      // However this might happen in add-to-app scenarios if the focus is changed
+      // from the native view to the Flutter view amid the key tap.
+      guard.ResolveTo(true);
+      return;
+    }
+    UpdateKeyPressedState(event->physical_key, 0);
+
+    FlutterKeyEvent flutterEvent = {
+        .struct_size = sizeof(FlutterKeyEvent),
+        .timestamp = GetFlutterTimestampFrom(event.timestamp),
+        .type = kFlutterKeyEventTypeUp,
+        .physical = physicalKey,
+        .logical = [pressedLogicalKey unsignedLongLongValue],
+        .character = nullptr,
+        .synthesized = false,
+    };
+    SendPrimaryFlutterEvent(&flutterEvent, callback);
+  }
+
+  void HandleFlagEvent(NSEvent* event, FlutterKeyCallbackGuard& callback) {
+    NSNumber* targetModifierFlagObj = flutter::keyCodeToModifierFlag[@(event.keyCode)];
+    NSUInteger target_modifier_flag =
+        targetModifierFlagObj == nil ? 0 : [targetModifierFlagObj unsignedLongValue];
+    uint64_t targetKey = GetPhysicalKeyForKeyCode(event.keyCode);
+    if (targetKey == flutter::kCapsLockPhysicalKey) {
+      return HandleCapsLockEvent(event, callback);
+    }
+
+    SynchronizeModifiers(event.modifierFlags,
+                /*ignoringFlags=*/target_modifier_flag,
+                    GetFlutterTimestampFrom(event.timestamp),
+                        callback);
+
+    auto found_pressed_logical_key = _pressing_records.find(targetKey);
+    bool last_target_is_pressed = found_pressed_logical_key != _pressing_records.end();
+    FML_DCHECK(targetModifierFlagObj == nil ||
+                (_last_modifier_flags_of_interest & target_modifier_flag) != 0 == last_target_is_pressed)
+            << std::hex
+            << "Desynchronized state between lastModifierFlagsOfInterest (0x" << _last_modifier_flags_of_interest
+            << ") on bit 0x" << target_modifier_flag
+            << " for keyCode 0x" << event.keyCode
+            << ", whose pressing state is " <<
+              (last_target_is_pressed ? found_pressed_logical_key->second : 0);
+
+    bool should_be_pressed = (event.modifierFlags & target_modifier_flag) != 0;
+    if (last_target_is_pressed == should_be_pressed) {
+      callback.ResolveTo(true);
+      return;
+    }
+    _last_modifier_flags_of_interest = _last_modifier_flags_of_interest ^ target_modifier_flag;
+    SendModifierEventOfType(should_be_pressed,
+                        GetFlutterTimestampFrom(event.timestamp),
+                          event.keyCode,
+                      /*synthesized=*/false,
+                        callback);
+  }
+
+  // Compare the last modifier flags and the current, and dispatch synthesized
+  // key events for each different modifier flag bit.
+  //
+  // The flags compared are all flags after masking with
+  // |modifierFlagOfInterestMask| and excluding |ignoringFlags|.
+  //
+  // The |guard| is basically a regular guarded callback, but instead of being
+  // called, it is only used to record whether an event is sent.
+  void SynchronizeModifiers(NSUInteger current_flags,
+               NSUInteger ignoring_flags,
+                   double timestamp_us,
+                    FlutterKeyCallbackGuard& guard) {
+    const NSUInteger updating_mask = _modifier_flag_of_interest_mask & ~ignoring_flags;
+    const NSUInteger current_flags_of_interest = current_flags & updating_mask;
+    const NSUInteger last_flags_of_interest = _last_modifier_flags_of_interest & updating_mask;
+    NSUInteger flag_difference = current_flags_of_interest ^ last_flags_of_interest;
+    if (flag_difference & NSEventModifierFlagCapsLock) {
+      SendCapsLockTap(timestamp_us, /*synthesize_down=*/true, guard);
+      flag_difference = flag_difference & ~NSEventModifierFlagCapsLock;
+    }
+    while (true) {
+      const NSUInteger current_flag = lowestSetBit(flag_difference);
+      if (current_flag == 0) {
+        break;
+      }
+      flag_difference = flag_difference & ~current_flag;
+      NSNumber* key_code = [flutter::modifierFlagToKeyCode objectForKey:@(current_flag)];
+      NSAssert(key_code != nil, @"Invalid modifier flag 0x%lx", current_flag);
+      if (key_code == nil) {
+        continue;
+      }
+      BOOL is_down = (current_flags_of_interest & current_flag) != 0;
+      SendModifierEventOfType(is_down, timestamp_us, key_code, /*synthesized=*/true, guard);
+    }
+    _last_modifier_flags_of_interest =
+        (_last_modifier_flags_of_interest & ~updatingMask) | current_flags_of_interest;
+  }
+
+
+ private:
+  // Update the pressing state.
+  //
+  // If `logicalKey` is not 0, `physical_key` is pressed as `logicalKey`.
+  // Otherwise, `physical_key` is released.
+  void UpdateKeyPressedState(uint64_t physical_key, uint64_t logicalKey) {
+    if (logical_key == 0) {
+      _pressing_records.erase(physical_key);
+    } else {
+      _pressing_records[physical_key] = logical_key;
+    }
+  }
+
+  // Send an event to the framework, expecting its response.
+  void SendPrimaryFlutterEvent(const FlutterKeyEvent* event,
+                        FlutterKeyCallbackGuard& guard) {
+    _response_id += 1;
+    uint64_t response_id = _response_id;
+    // The `pending` is released in `HandleResponse`.
+    FlutterKeyPendingResponse* pending = new FlutterKeyPendingResponse{this, response_id};
+    guard.PendTo(*_pending_responses, response_id);
+    _send_event(event, HandleResponse, pending);
+    guard.SetSentEvents();
+  }
+
+  // Send a synthesized key event, never expecting its event result.
+  //
+  // The |guard| is basically a regular guarded callback, but instead of being
+  // called, it is only used to record whether an event is sent.
+  void SendSynthesizedFlutterEvent(const FlutterKeyEvent* event,
+                                FlutterKeyCallbackGuard& guard) {
+    _send_event(event, nullptr, nullptr);
+    guard.SetSentEvents();
+  }
+
+  // Send a key event for a modifier key.
+  void SendModifierEventOfType(bool is_down_event,
+                        double timestamp_us,
+                          unsigned short key_code,
+                      bool synthesized,
+                        FlutterKeyCallbackGuard& guard) {
+    uint64_t physical_key = GetPhysicalKeyForKeyCode(key_code);
+    uint64_t logical_key = GetLogicalKeyForModifier(key_code, physical_key);
+    if (physicalKey == 0 || logicalKey == 0) {
+      FML_LOG(ERROR) << "Unrecognized modifier key: keyCode " << keyCode,
+                     << " physical key " << physicalKey;
+      callback.ResolveTo(true);
+      return;
+    }
+    FlutterKeyEvent flutterEvent = {
+        .struct_size = sizeof(FlutterKeyEvent),
+        .timestamp = timestamp,
+        .type = is_down_event ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp,
+        .physical = physical_key,
+        .logical = logical_key,
+        .character = nullptr,
+        .synthesized = synthesized,
+    };
+    UpdateKeyPressedState(physical_key, is_down_event ? logicalKey : 0);
+    if (!synthesized) {
+      SendPrimaryFlutterEvent(&flutterEvent, guard);
+    } else {
+      SendSynthesizedFlutterEvent(&flutterEvent, guard);
+    }
+  }
+
+  // Send a CapsLock down event, then a CapsLock up event.
+  //
+  // If synthesize_down is true, then both events will be synthesized. Otherwise,
+  // the callback will be used as the callback for the down event, which is not
+  // synthesized, while the up event will always be synthesized.
+  void SendCapsLockTap(double timestamp_us,
+                      bool synthesize_down,
+                          FlutterKeyCallbackGuard& callback) {
+    // MacOS sends a down *or* an up when CapsLock is tapped, alternatively on
+    // even taps and odd taps. A CapsLock down or CapsLock up should always be
+    // converted to a down *and* an up, and the up should always be a synthesized
+    // event, since the FlutterEmbedderKeyResponder will never know when the
+    // button is released.
+    FlutterKeyEvent flutter_event = {
+        .struct_size = sizeof(FlutterKeyEvent),
+        .timestamp = timestamp_us,
+        .type = kFlutterKeyEventTypeDown,
+        .physical = flutter::kCapsLockPhysicalKey,
+        .logical = flutter::kCapsLockLogicalKey,
+        .character = nullptr,
+        .synthesized = synthesize_down,
+    };
+    if (!synthesize_down) {
+      SendPrimaryFlutterEvent(flutter_event, callback);
+    } else {
+      SendSynthesizedFlutterEvent(flutter_event, callback);
+    }
+
+    flutter_event.type = kFlutterKeyEventTypeUp;
+    flutter_event.synthesized = true;
+    SendSynthesizedFlutterEvent(flutter_event, callback);
+  }
+
+  // The function to send converted events to.
+  //
+  // Set by the constructor.
+  SendEvent _send_event;
+
+  // A map of unresponded key events sent to the framework.
+  //
+  // Its values are |response_id|s, and keys are the callback that was received
+  // along with the event.
+  AsyncKeyCallbackMap _pending_responses;
+
+  // A map of presessd keys.
+  //
+  // The keys of the dictionary are physical keys, while the values are the logical keys
+  // of the key down event.
+  std::unordered_map<uint64_t, uint64_t> _pressing_records;
+
+  // A self-incrementing ID used to label key events sent to the framework.
+  uint64_t _response_id;
+
+  // A constant mask for NSEvent.modifierFlags that Flutter synchronizes with.
+  //
+  // Flutter keeps track of the last |modifierFlags| and compares it with the
+  // incoming one. Any bit within |_modifier_flag_of_interest_mask| that is different
+  // (except for the one that corresponds to the event key) indicates that an
+  // event for this modifier was missed, and Flutter synthesizes an event to make
+  // up for the state difference.
+  //
+  // It is computed by computeModifierFlagOfInterestMask.
+  const NSUInteger _modifier_flag_of_interest_mask;
+
+  // The modifier flags of the last received key event, excluding uninterested
+  // bits.
+  //
+  // This should be kept synchronized with the last |NSEvent.modifierFlags|
+  // after masking with |_modifier_flag_of_interest_mask|. This should also be kept
+  // synchronized with the corresponding keys of |_pressing_records|.
+  //
+  // This is used by |SynchronizeModifiers| to quickly find
+  // out modifier keys that are desynchronized.
+  NSUInteger _last_modifier_flags_of_interest;
+}
+
 @interface FlutterEmbedderKeyResponder ()
-
-/**
- * The function to send converted events to.
- *
- * Set by the initializer.
- */
-@property(nonatomic, copy) FlutterSendEmbedderKeyEvent sendEvent;
-
-/**
- * A map of presessd keys.
- *
- * The keys of the dictionary are physical keys, while the values are the logical keys
- * of the key down event.
- */
-@property(nonatomic) NSMutableDictionary<NSNumber*, NSNumber*>* pressingRecords;
-
-/**
- * A constant mask for NSEvent.modifierFlags that Flutter synchronizes with.
- *
- * Flutter keeps track of the last |modifierFlags| and compares it with the
- * incoming one. Any bit within |modifierFlagOfInterestMask| that is different
- * (except for the one that corresponds to the event key) indicates that an
- * event for this modifier was missed, and Flutter synthesizes an event to make
- * up for the state difference.
- *
- * It is computed by computeModifierFlagOfInterestMask.
- */
-@property(nonatomic) NSUInteger modifierFlagOfInterestMask;
-
-/**
- * The modifier flags of the last received key event, excluding uninterested
- * bits.
- *
- * This should be kept synchronized with the last |NSEvent.modifierFlags|
- * after masking with |modifierFlagOfInterestMask|. This should also be kept
- * synchronized with the corresponding keys of |pressingRecords|.
- *
- * This is used by |synchronizeModifiers| to quickly find
- * out modifier keys that are desynchronized.
- */
-@property(nonatomic) NSUInteger lastModifierFlagsOfInterest;
-
-/**
- * A self-incrementing ID used to label key events sent to the framework.
- */
-@property(nonatomic) uint64_t responseId;
-
-/**
- * Compare the last modifier flags and the current, and dispatch synthesized
- * key events for each different modifier flag bit.
- *
- * The flags compared are all flags after masking with
- * |modifierFlagOfInterestMask| and excluding |ignoringFlags|.
- *
- * The |guard| is basically a regular guarded callback, but instead of being
- * called, it is only used to record whether an event is sent.
- */
-- (void)synchronizeModifiers:(NSUInteger)currentFlags
-               ignoringFlags:(NSUInteger)ignoringFlags
-                   timestamp:(NSTimeInterval)timestamp
-                       guard:(FlutterKeyCallbackGuard&)guard;
-
-/**
- * Update the pressing state.
- *
- * If `logicalKey` is not 0, `physicalKey` is pressed as `logicalKey`.
- * Otherwise, `physicalKey` is released.
- */
-- (void)updateKey:(uint64_t)physicalKey asPressed:(uint64_t)logicalKey;
-
-/**
- * Send an event to the framework, expecting its response.
- */
-- (void)sendPrimaryFlutterEvent:(const FlutterKeyEvent&)event
-                       callback:(FlutterKeyCallbackGuard&)callback;
-
-/**
- * Send a synthesized key event, never expecting its event result.
- *
- * The |guard| is basically a regular guarded callback, but instead of being
- * called, it is only used to record whether an event is sent.
- */
-- (void)sendSynthesizedFlutterEvent:(const FlutterKeyEvent&)event
-                              guard:(FlutterKeyCallbackGuard&)guard;
-
-/**
- * Send a CapsLock down event, then a CapsLock up event.
- *
- * If synthesizeDown is TRUE, then both events will be synthesized. Otherwise,
- * the callback will be used as the callback for the down event, which is not
- * synthesized, while the up event will always be synthesized.
- */
-- (void)sendCapsLockTapWithTimestamp:(NSTimeInterval)timestamp
-                      synthesizeDown:(bool)synthesizeDown
-                            callback:(FlutterKeyCallbackGuard&)callback;
-
-/**
- * Send a key event for a modifier key.
- */
-- (void)sendModifierEventOfType:(BOOL)isDownEvent
-                      timestamp:(NSTimeInterval)timestamp
-                        keyCode:(unsigned short)keyCode
-                    synthesized:(bool)synthesized
-                       callback:(FlutterKeyCallbackGuard&)callback;
-
-/**
- * Processes a down event from the system.
- */
-- (void)handleDownEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
-
-/**
- * Processes an up event from the system.
- */
-- (void)handleUpEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
-
-/**
- * Processes an event from the system for the CapsLock key.
- */
-- (void)handleCapsLockEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
-
-/**
- * Processes a flags changed event from the system, where modifier keys are pressed or released.
- */
-- (void)handleFlagEvent:(nonnull NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback;
-
 /**
  * Processes the response from the framework.
  */
@@ -449,13 +679,7 @@ class FlutterKeyCallbackGuard {
 @end
 
 @implementation FlutterEmbedderKeyResponder {
-  /**
-   * A map of unresponded key events sent to the framework.
-   *
-   * Its values are |responseId|s, and keys are the callback that was received
-   * along with the event.
-   */
-  AsyncKeyCallbackMap* _pendingResponses;
+  KeyboardTracker* _tracker;
 }
 
 @synthesize layoutMap;
@@ -463,306 +687,61 @@ class FlutterKeyCallbackGuard {
 - (nonnull instancetype)initWithSendEvent:(FlutterSendEmbedderKeyEvent)sendEvent {
   self = [super init];
   if (self != nil) {
-    _sendEvent = sendEvent;
-    _pressingRecords = [NSMutableDictionary dictionary];
-    _pendingResponses = new AsyncKeyCallbackMap;
-    _responseId = 1;
-    _lastModifierFlagsOfInterest = 0;
-    _modifierFlagOfInterestMask = computeModifierFlagOfInterestMask();
+    _tracker = new KeyboardTracker([sendEvent] (
+      const FlutterKeyEvent& event,
+                                            FlutterKeyEventCallback callback,
+                                            void* user_data
+    ) {
+      sendEvent(event, callback, user_data);
+    });
   }
   return self;
 }
 
 - (void)dealloc {
-  delete _pendingResponses;
+  delete _tracker;
 }
 
 - (void)handleEvent:(NSEvent*)event callback:(FlutterAsyncKeyCallback)callback {
   // The conversion algorithm relies on a non-nil callback to properly compute
   // `synthesized`.
   NSAssert(callback != nil, @"The callback must not be nil.");
-  auto guarded_callback =
-      std::make_unique<FlutterKeyCallbackGuard>([callback](bool handle) { callback(handle); });
-  switch (event.type) {
-    case NSEventTypeKeyDown:
-      [self handleDownEvent:event callback:*guarded_callback];
-      break;
-    case NSEventTypeKeyUp:
-      [self handleUpEvent:event callback:*guarded_callback];
-      break;
-    case NSEventTypeFlagsChanged:
-      [self handleFlagEvent:event callback:*guarded_callback];
-      break;
-    default:
-      NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
-  }
-  NSAssert(guarded_callback->handled(), @"The callback is returned without being handled.");
-  if (!guarded_callback->sentAnyEvents()) {
-    FlutterKeyEvent flutterEvent = {
-        .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = 0,
-        .type = kFlutterKeyEventTypeDown,
-        .physical = 0,
-        .logical = 0,
-        .character = nil,
-        .synthesized = false,
-    };
-    _sendEvent(flutterEvent, nullptr, nullptr);
-  }
-  NSAssert(_lastModifierFlagsOfInterest == (event.modifierFlags & _modifierFlagOfInterestMask),
-           @"The modifier flags are not properly updated: recorded 0x%lx, event with mask 0x%lx",
-           _lastModifierFlagsOfInterest, event.modifierFlags & _modifierFlagOfInterestMask);
-}
 
-#pragma mark - Private
-
-- (void)synchronizeModifiers:(NSUInteger)currentFlags
-               ignoringFlags:(NSUInteger)ignoringFlags
-                   timestamp:(NSTimeInterval)timestamp
-                       guard:(FlutterKeyCallbackGuard&)guard {
-  const NSUInteger updatingMask = _modifierFlagOfInterestMask & ~ignoringFlags;
-  const NSUInteger currentFlagsOfInterest = currentFlags & updatingMask;
-  const NSUInteger lastFlagsOfInterest = _lastModifierFlagsOfInterest & updatingMask;
-  NSUInteger flagDifference = currentFlagsOfInterest ^ lastFlagsOfInterest;
-  if (flagDifference & NSEventModifierFlagCapsLock) {
-    [self sendCapsLockTapWithTimestamp:timestamp synthesizeDown:true callback:guard];
-    flagDifference = flagDifference & ~NSEventModifierFlagCapsLock;
-  }
-  while (true) {
-    const NSUInteger currentFlag = lowestSetBit(flagDifference);
-    if (currentFlag == 0) {
-      break;
-    }
-    flagDifference = flagDifference & ~currentFlag;
-    NSNumber* keyCode = [flutter::modifierFlagToKeyCode objectForKey:@(currentFlag)];
-    NSAssert(keyCode != nil, @"Invalid modifier flag 0x%lx", currentFlag);
-    if (keyCode == nil) {
-      continue;
-    }
-    BOOL isDownEvent = (currentFlagsOfInterest & currentFlag) != 0;
-    [self sendModifierEventOfType:isDownEvent
-                        timestamp:timestamp
-                          keyCode:[keyCode unsignedShortValue]
-                      synthesized:true
-                         callback:guard];
-  }
-  _lastModifierFlagsOfInterest =
-      (_lastModifierFlagsOfInterest & ~updatingMask) | currentFlagsOfInterest;
-}
-
-- (void)updateKey:(uint64_t)physicalKey asPressed:(uint64_t)logicalKey {
-  if (logicalKey == 0) {
-    [_pressingRecords removeObjectForKey:@(physicalKey)];
-  } else {
-    _pressingRecords[@(physicalKey)] = @(logicalKey);
-  }
-}
-
-- (void)sendPrimaryFlutterEvent:(const FlutterKeyEvent&)event
-                       callback:(FlutterKeyCallbackGuard&)callback {
-  _responseId += 1;
-  uint64_t responseId = _responseId;
-  // The `pending` is released in `HandleResponse`.
-  FlutterKeyPendingResponse* pending = new FlutterKeyPendingResponse{self, responseId};
-  callback.pendTo(*_pendingResponses, responseId);
-  _sendEvent(event, HandleResponse, pending);
-  callback.setSentEvents();
-}
-
-- (void)sendSynthesizedFlutterEvent:(const FlutterKeyEvent&)event
-                              guard:(FlutterKeyCallbackGuard&)guard {
-  _sendEvent(event, nullptr, nullptr);
-  guard.setSentEvents();
-}
-
-- (void)sendCapsLockTapWithTimestamp:(NSTimeInterval)timestamp
-                      synthesizeDown:(bool)synthesizeDown
-                            callback:(FlutterKeyCallbackGuard&)callback {
-  // MacOS sends a down *or* an up when CapsLock is tapped, alternatively on
-  // even taps and odd taps. A CapsLock down or CapsLock up should always be
-  // converted to a down *and* an up, and the up should always be a synthesized
-  // event, since the FlutterEmbedderKeyResponder will never know when the
-  // button is released.
-  FlutterKeyEvent flutterEvent = {
-      .struct_size = sizeof(FlutterKeyEvent),
-      .timestamp = GetFlutterTimestampFrom(timestamp),
-      .type = kFlutterKeyEventTypeDown,
-      .physical = flutter::kCapsLockPhysicalKey,
-      .logical = flutter::kCapsLockLogicalKey,
-      .character = nil,
-      .synthesized = synthesizeDown,
-  };
-  if (!synthesizeDown) {
-    [self sendPrimaryFlutterEvent:flutterEvent callback:callback];
-  } else {
-    [self sendSynthesizedFlutterEvent:flutterEvent guard:callback];
-  }
-
-  flutterEvent.type = kFlutterKeyEventTypeUp;
-  flutterEvent.synthesized = true;
-  [self sendSynthesizedFlutterEvent:flutterEvent guard:callback];
-}
-
-- (void)sendModifierEventOfType:(BOOL)isDownEvent
-                      timestamp:(NSTimeInterval)timestamp
-                        keyCode:(unsigned short)keyCode
-                    synthesized:(bool)synthesized
-                       callback:(FlutterKeyCallbackGuard&)callback {
-  uint64_t physicalKey = GetPhysicalKeyForKeyCode(keyCode);
-  uint64_t logicalKey = GetLogicalKeyForModifier(keyCode, physicalKey);
-  if (physicalKey == 0 || logicalKey == 0) {
-    NSLog(@"Unrecognized modifier key: keyCode 0x%hx, physical key 0x%llx", keyCode, physicalKey);
-    callback.resolveTo(true);
-    return;
-  }
-  FlutterKeyEvent flutterEvent = {
-      .struct_size = sizeof(FlutterKeyEvent),
-      .timestamp = GetFlutterTimestampFrom(timestamp),
-      .type = isDownEvent ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp,
-      .physical = physicalKey,
-      .logical = logicalKey,
-      .character = nil,
-      .synthesized = synthesized,
-  };
-  [self updateKey:physicalKey asPressed:isDownEvent ? logicalKey : 0];
-  if (!synthesized) {
-    [self sendPrimaryFlutterEvent:flutterEvent callback:callback];
-  } else {
-    [self sendSynthesizedFlutterEvent:flutterEvent guard:callback];
-  }
-}
-
-- (void)handleDownEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
   uint64_t physicalKey = GetPhysicalKeyForKeyCode(event.keyCode);
   NSNumber* logicalKeyFromMap = self.layoutMap[@(event.keyCode)];
   uint64_t logicalKey = logicalKeyFromMap != nil ? [logicalKeyFromMap unsignedLongLongValue]
                                                  : GetLogicalKeyForEvent(event, physicalKey);
-  [self synchronizeModifiers:event.modifierFlags
-               ignoringFlags:0
-                   timestamp:event.timestamp
-                       guard:callback];
-
-  bool isARepeat = event.isARepeat;
-  NSNumber* pressedLogicalKey = _pressingRecords[@(physicalKey)];
-  if (pressedLogicalKey != nil && !isARepeat) {
-    // This might happen in add-to-app scenarios if the focus is changed
-    // from the native view to the Flutter view amid the key tap.
-    //
-    // This might also happen when a key event is forged (such as by an
-    // IME) using the same keyCode as an unreleased key. See
-    // https://github.com/flutter/flutter/issues/82673#issuecomment-988661079
-    FlutterKeyEvent flutterEvent = {
-        .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = GetFlutterTimestampFrom(event.timestamp),
-        .type = kFlutterKeyEventTypeUp,
-        .physical = physicalKey,
-        .logical = [pressedLogicalKey unsignedLongLongValue],
-        .character = nil,
-        .synthesized = true,
-    };
-    [self sendSynthesizedFlutterEvent:flutterEvent guard:callback];
-    pressedLogicalKey = nil;
-  }
-
-  if (pressedLogicalKey == nil) {
-    [self updateKey:physicalKey asPressed:logicalKey];
-  }
-
-  FlutterKeyEvent flutterEvent = {
-      .struct_size = sizeof(FlutterKeyEvent),
-      .timestamp = GetFlutterTimestampFrom(event.timestamp),
-      .type = pressedLogicalKey == nil ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeRepeat,
-      .physical = physicalKey,
-      .logical = pressedLogicalKey == nil ? logicalKey : [pressedLogicalKey unsignedLongLongValue],
-      .character = getEventString(event.characters),
-      .synthesized = false,
+  NativeKeyData native_key {
+    .timestamp = GetFlutterTimestampFrom(event.timestamp),
+    .physicalKey = physicalKey,
+    .logicalKey = logicalKey,
+    .character = event.characters,
+    .is_down = event.type == NSEventTypeKeyDown,
+    .is_repeat = event.isARepeat,
+    .modifier_flag = event.modifierFlags,
   };
-  [self sendPrimaryFlutterEvent:flutterEvent callback:callback];
+
+  auto guarded_callback =
+      std::make_unique<FlutterKeyCallbackGuard>([callback](bool handle) { callback(handle); });
+  switch (event.type) {
+    case NSEventTypeKeyDown:
+      _tracker->HandleDownEvent(&native_key, *guarded_callback);
+      break;
+    case NSEventTypeKeyUp:
+      _tracker->HandleUpEvent(&native_key, *guarded_callback);
+      break;
+    case NSEventTypeFlagsChanged:
+      _tracker->HandleFlagEvent(event, *guarded_callback);
+      break;
+    default:
+      NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
+  }
+  // NSAssert(_lastModifierFlagsOfInterest == (event.modifierFlags & _modifierFlagOfInterestMask),
+  //          @"The modifier flags are not properly updated: recorded 0x%lx, event with mask 0x%lx",
+  //          _lastModifierFlagsOfInterest, event.modifierFlags & _modifierFlagOfInterestMask);
 }
 
-- (void)handleUpEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
-  NSAssert(!event.isARepeat, @"Unexpected repeated Up event: keyCode %d, char %@, charIM %@",
-           event.keyCode, event.characters, event.charactersIgnoringModifiers);
-  [self synchronizeModifiers:event.modifierFlags
-               ignoringFlags:0
-                   timestamp:event.timestamp
-                       guard:callback];
-
-  uint64_t physicalKey = GetPhysicalKeyForKeyCode(event.keyCode);
-  NSNumber* pressedLogicalKey = _pressingRecords[@(physicalKey)];
-  if (pressedLogicalKey == nil) {
-    // Normally the key up events won't be missed since macOS always sends the
-    // key up event to the window where the corresponding key down occurred.
-    // However this might happen in add-to-app scenarios if the focus is changed
-    // from the native view to the Flutter view amid the key tap.
-    callback.resolveTo(true);
-    return;
-  }
-  [self updateKey:physicalKey asPressed:0];
-
-  FlutterKeyEvent flutterEvent = {
-      .struct_size = sizeof(FlutterKeyEvent),
-      .timestamp = GetFlutterTimestampFrom(event.timestamp),
-      .type = kFlutterKeyEventTypeUp,
-      .physical = physicalKey,
-      .logical = [pressedLogicalKey unsignedLongLongValue],
-      .character = nil,
-      .synthesized = false,
-  };
-  [self sendPrimaryFlutterEvent:flutterEvent callback:callback];
-}
-
-- (void)handleCapsLockEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
-  [self synchronizeModifiers:event.modifierFlags
-               ignoringFlags:NSEventModifierFlagCapsLock
-                   timestamp:event.timestamp
-                       guard:callback];
-  if ((_lastModifierFlagsOfInterest & NSEventModifierFlagCapsLock) !=
-      (event.modifierFlags & NSEventModifierFlagCapsLock)) {
-    [self sendCapsLockTapWithTimestamp:event.timestamp synthesizeDown:false callback:callback];
-    _lastModifierFlagsOfInterest = _lastModifierFlagsOfInterest ^ NSEventModifierFlagCapsLock;
-  } else {
-    callback.resolveTo(true);
-  }
-}
-
-- (void)handleFlagEvent:(NSEvent*)event callback:(FlutterKeyCallbackGuard&)callback {
-  NSNumber* targetModifierFlagObj = flutter::keyCodeToModifierFlag[@(event.keyCode)];
-  NSUInteger targetModifierFlag =
-      targetModifierFlagObj == nil ? 0 : [targetModifierFlagObj unsignedLongValue];
-  uint64_t targetKey = GetPhysicalKeyForKeyCode(event.keyCode);
-  if (targetKey == flutter::kCapsLockPhysicalKey) {
-    return [self handleCapsLockEvent:event callback:callback];
-  }
-
-  [self synchronizeModifiers:event.modifierFlags
-               ignoringFlags:targetModifierFlag
-                   timestamp:event.timestamp
-                       guard:callback];
-
-  NSNumber* pressedLogicalKey = [_pressingRecords objectForKey:@(targetKey)];
-  BOOL lastTargetPressed = pressedLogicalKey != nil;
-  NSAssert(targetModifierFlagObj == nil ||
-               (_lastModifierFlagsOfInterest & targetModifierFlag) != 0 == lastTargetPressed,
-           @"Desynchronized state between lastModifierFlagsOfInterest (0x%lx) on bit 0x%lx "
-           @"for keyCode 0x%hx, whose pressing state is %@.",
-           _lastModifierFlagsOfInterest, targetModifierFlag, event.keyCode,
-           lastTargetPressed
-               ? [NSString stringWithFormat:@"0x%llx", [pressedLogicalKey unsignedLongLongValue]]
-               : @"empty");
-
-  BOOL shouldBePressed = (event.modifierFlags & targetModifierFlag) != 0;
-  if (lastTargetPressed == shouldBePressed) {
-    callback.resolveTo(true);
-    return;
-  }
-  _lastModifierFlagsOfInterest = _lastModifierFlagsOfInterest ^ targetModifierFlag;
-  [self sendModifierEventOfType:shouldBePressed
-                      timestamp:event.timestamp
-                        keyCode:event.keyCode
-                    synthesized:false
-                       callback:callback];
-}
+#pragma mark - Private
 
 - (void)handleResponse:(BOOL)handled forId:(uint64_t)responseId {
   auto found_callback = _pendingResponses->find(responseId);
@@ -776,14 +755,14 @@ class FlutterKeyCallbackGuard {
   auto guarded_callback = std::make_unique<FlutterKeyCallbackGuard>([](bool handled) {
     /* Do nothing */
   });
-  [self synchronizeModifiers:modifierFlags
-               ignoringFlags:0
-                   timestamp:timestamp
-                       guard:*guarded_callback];
+  _tracker->SynchronizeModifiers(modifierFlags,
+               /*ignoringFlags=*/0,
+                   GetFlutterTimestampFrom(timestamp),
+                       *guarded_callback);
 }
 
 - (nonnull NSDictionary*)getPressedState {
-  return [NSDictionary dictionaryWithDictionary:_pressingRecords];
+  return ToNSDictionary(_tracker->GetPressedState());
 }
 @end
 
