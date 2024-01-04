@@ -275,14 +275,15 @@ struct FlutterKeyPendingResponse {
  */
 class FlutterKeyCallbackGuard {
  public:
-  FlutterKeyCallbackGuard(uint64_t response_id)
-      : _resolved(false), _sent_primary_event(false), _sent_synthesized_events(false) {}
+  static constexpr uint64_t kDontNeedResponse = 0;
+
+  FlutterKeyCallbackGuard(uint64_t response_id) : _response_id(response_id) {}
 
   ~FlutterKeyCallbackGuard() {
-    if (!resolved()) {
+    if (_response_id != kDontNeedResponse && !resolved()) {
       FML_LOG(ERROR) << "The callback is returned without being resolved.";
     }
-    if (!sent_any_events()) {
+    if (_response_id != kDontNeedResponse && !sent_any_events()) {
       FML_LOG(ERROR) << "The callback is returned without sending any events.";
     }
   }
@@ -314,15 +315,15 @@ class FlutterKeyCallbackGuard {
 
   bool resolved() const { return _resolved; }
 
-  bool sent_primary_event() const { return _resolved; }
+  bool sent_primary_event() const { return _sent_primary_event; }
 
   bool sent_any_events() const { return _sent_primary_event || _sent_synthesized_events; }
 
  private:
-  uint64_t _response_id;
-  bool _resolved;
-  bool _sent_primary_event;
-  bool _sent_synthesized_events;
+  const uint64_t _response_id;
+  bool _resolved = false;
+  bool _sent_primary_event = false;
+  bool _sent_synthesized_events = false;
 
   FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
 };
@@ -412,14 +413,15 @@ class KeyboardTracker {
       guard.ResolveWithoutPrimaryEvent();
       return;
     }
+    uint64_t pressed_logical_key = found_pressed_logical_key->second;
     UpdateKeyPressedState(event->physical_key, 0);
 
     FlutterKeyEvent flutter_event = {
         .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = GetFlutterTimestampFrom(event->timestamp),
+        .timestamp = event->timestamp,
         .type = kFlutterKeyEventTypeUp,
         .physical = event->physical_key,
-        .logical = found_pressed_logical_key->second,
+        .logical = pressed_logical_key,
         .character = nullptr,
         .synthesized = false,
     };
@@ -633,14 +635,14 @@ class KeyboardTracker {
   //
   // This is used by |SynchronizeModifiers| to quickly find
   // out modifier keys that are desynchronized.
-  NSUInteger _last_modifier_flags_of_interest;
+  NSUInteger _last_modifier_flags_of_interest = 0;
 };
 
 @interface FlutterEmbedderKeyResponder ()
 /**
  * Processes the response from the framework.
  */
-- (void)handleResponse:(BOOL)handled forId:(uint64_t)responseId;
+- (void)handleResponseForId:(uint64_t)responseId withResult:(BOOL)handled;
 
 - (void)sendEvent:(const FlutterKeyEvent&)event responseId:(uint64_t)responseId;
 @end
@@ -683,7 +685,9 @@ class KeyboardTracker {
 }
 
 - (void)sendEvent:(const FlutterKeyEvent&)event responseId:(uint64_t)responseId {
-  if (!event.synthesized) {
+  NSAssert(event.synthesized == (responseId == 0), @"event.synthesize is %d but responseId is %llu",
+           event.synthesized, responseId);
+  if (event.synthesized) {
     _sendEventToEngine(event, nullptr, nullptr);
     return;
   }
@@ -706,9 +710,9 @@ class KeyboardTracker {
       .timestamp = GetFlutterTimestampFrom(event.timestamp),
       .physical_key = physicalKey,
       .logical_key = logicalKey,
-      .characters = event.characters,
+      .characters = (event.type == NSEventTypeKeyDown) ? event.characters : nil,
       .is_down = event.type == NSEventTypeKeyDown,
-      .is_repeat = static_cast<bool>(event.isARepeat),
+      .is_repeat = (event.type == NSEventTypeKeyDown) ? static_cast<bool>(event.isARepeat) : false,
       .modifier_flag = event.modifierFlags,
   };
 
@@ -730,10 +734,11 @@ class KeyboardTracker {
     default:
       NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
   }
+  NSAssert(guarded_callback->resolved(), @"The guard is not resolved");
   // Every handleEvent's callback expects a reply. If the native event generates
   // no primary events, reply it now with "handled".
   if (!guarded_callback->sent_primary_event()) {
-    [self handleResponse:responseId forId:true];
+    [self handleResponseForId:responseId withResult:true];
   }
   // Every native event must send at least one event to satisfy the protocol for
   // event modes. If there are no any events sent, synthesize an empty one here.
@@ -746,9 +751,10 @@ class KeyboardTracker {
         .physical = 0,
         .logical = 0,
         .character = nil,
-        .synthesized = false,
+        .synthesized = true,
     };
     [self sendEvent:flutterEvent responseId:0];
+    guarded_callback->MarkSentSynthesizedEvent();
   }
   // TODO(dkwingsmt)
   // NSAssert(_lastModifierFlagsOfInterest == (event.modifierFlags & _modifierFlagOfInterestMask),
@@ -758,7 +764,7 @@ class KeyboardTracker {
 
 #pragma mark - Private
 
-- (void)handleResponse:(BOOL)handled forId:(uint64_t)responseId {
+- (void)handleResponseForId:(uint64_t)responseId withResult:(BOOL)handled {
   FlutterAsyncKeyCallback callback = _pendingResponses[@(responseId)];
   NSAssert(callback != nil, @"Invalid response ID %llu", responseId);
   callback(handled);
@@ -767,10 +773,13 @@ class KeyboardTracker {
 
 - (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
                     timestamp:(NSTimeInterval)timestamp {
-  auto guarded_callback = std::make_unique<FlutterKeyCallbackGuard>(0);
+  auto guarded_callback =
+      std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
   _tracker->SynchronizeModifiers(modifierFlags,
                                  /*ignoringFlags=*/0, GetFlutterTimestampFrom(timestamp),
                                  *guarded_callback);
+  guarded_callback->ResolveWithoutPrimaryEvent();
+  guarded_callback->MarkSentSynthesizedEvent();
 }
 
 - (nonnull NSDictionary*)getPressedState {
@@ -783,6 +792,6 @@ void HandleResponse(bool handled, void* user_data) {
   // Use unique_ptr to release on leaving.
   auto pending = std::unique_ptr<FlutterKeyPendingResponse>(
       reinterpret_cast<FlutterKeyPendingResponse*>(user_data));
-  [pending->responder handleResponse:handled forId:pending->responseId];
+  [pending->responder handleResponseForId:pending->responseId withResult:handled];
 }
 }  // namespace
