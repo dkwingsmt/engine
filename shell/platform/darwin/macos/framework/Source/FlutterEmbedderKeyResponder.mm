@@ -227,7 +227,11 @@ void HandleResponse(bool handled, void* user_data);
 /**
  * Converts NSEvent.characters to a C-string for FlutterKeyEvent.
  */
-const char* getEventString(NSString* characters) {
+const char* getEventString(NSEvent* event) {
+  if (event.type == NSEventTypeKeyUp) {
+    return nullptr;
+  }
+  NSString* characters = event.characters;
   if ([characters length] == 0) {
     return nullptr;
   }
@@ -345,87 +349,161 @@ struct NativeKeyData {
   NSUInteger modifier_flag;
 };
 
-class KeyboardTracker {
+enum class EventType {
+  kUp,
+  kDown,
+  kRepeat,
+};
+
+class PressStateTracker {
+ public:
+  void RequireState(std::vector<EventType>* output,
+                    uint64_t physical_key,
+                    std::optional<bool> require_pressed_before,
+                    bool require_pressed_after) {
+    StateMap::iterator current = _pressed_keys.try_emplace(physical_key, false).first;
+
+    // Align with "require_pressed_before".
+    if (require_pressed_before.has_value()) {
+      EnsurePressed(output, current, require_pressed_before.value());
+    }
+
+    // Align with "require_pressed_after".
+    EnsurePressed(output, current, require_pressed_after);
+
+    // Special case: A repeat event requires "pressed" state on a pressed key,
+    // needing this special clause to generate output.
+    if (output->size() == 0 && require_pressed_after) {
+      FML_DCHECK(current->second)
+          << "Bad implementation: This can only happen when the key is pressed.";
+      output->push_back(EventType::kRepeat);
+    }
+  }
+
+  std::unordered_map<uint64_t, bool> pressed_keys() const { return _pressed_keys; }
+
+ private:
+  typedef std::unordered_map<uint64_t, bool> StateMap;
+
+  StateMap _pressed_keys;
+
+  // Ensure key state requirement by optionally pushing an event to `output` and
+  // changing the value of `current` accordingly.
+  static void EnsurePressed(std::vector<EventType>* output,
+                            StateMap::iterator current,
+                            bool require_pressed) {
+    if (current->second == require_pressed) {
+      return;
+    }
+    output->push_back(require_pressed ? EventType::kDown : EventType::kUp);
+    current->second = !current->second;
+  }
+};
+
+FlutterKeyEventType ToEmbedderApiType(EventType type) {
+  switch (type) {
+    case EventType::kUp:
+      return kFlutterKeyEventTypeUp;
+    case EventType::kDown:
+      return kFlutterKeyEventTypeDown;
+    case EventType::kRepeat:
+      return kFlutterKeyEventTypeRepeat;
+    default:
+      FML_UNREACHABLE();
+  }
+}
+
+class CommonKeyboard {
  public:
   using SendEvent = std::function<void(const FlutterKeyEvent* event, uint64_t response_id)>;
 
-  KeyboardTracker(SendEvent send_event)
+  using DeriveLogicalKey = std::function<uint64_t(NSEvent* event, uint64_t physical_key)>;
+
+  CommonKeyboard(SendEvent send_event, DeriveLogicalKey derive_logical_key)
       : _send_event(send_event),
+        _derive_logical_key(derive_logical_key),
         _modifier_flag_of_interest_mask(computeModifierFlagOfInterestMask()) {}
 
-  std::unordered_map<uint64_t, uint64_t> GetPressedState() { return _pressing_records; }
-
-  // Processes a down event from the system.
-  void HandleDownEvent(const NativeKeyData* event, FlutterKeyCallbackGuard& guard) {
-    SynchronizeModifiers(event->modifier_flag,
-                         /*ignoringFlags=*/0, event->timestamp, guard);
-
-    auto found_pressed_logical_key = _pressing_records.find(event->physical_key);
-    bool key_is_pressed = found_pressed_logical_key != _pressing_records.end();
-    if (key_is_pressed && !event->is_repeat) {
-      // This might happen in add-to-app scenarios if the focus is changed
-      // from the native view to the Flutter view amid the key tap.
-      //
-      // This might also happen when a key event is forged (such as by an
-      // IME) using the same keyCode as an unreleased key. See
-      // https://github.com/flutter/flutter/issues/82673#issuecomment-988661079
-      FlutterKeyEvent flutterEvent = {
-          .struct_size = sizeof(FlutterKeyEvent),
-          .timestamp = event->timestamp,
-          .type = kFlutterKeyEventTypeUp,
-          .physical = event->physical_key,
-          .logical = found_pressed_logical_key->second,
-          .character = nullptr,
-          .synthesized = true,
-      };
-      SendSynthesizedFlutterEvent(&flutterEvent, guard);
-      key_is_pressed = false;
+  std::unordered_map<uint64_t, uint64_t> GetPressedState() {
+    std::unordered_map<uint64_t, uint64_t> result = _pressing_records;
+    for (auto [physical_key, pressed] : _press_tracker.pressed_keys()) {
+      if (pressed) {
+        auto logical_key_entry = _logical_key_record.find(physical_key);
+        FML_DCHECK(logical_key_entry != _logical_key_record.end());
+        result[physical_key] = logical_key_entry->second;
+      }
     }
-
-    if (!key_is_pressed) {
-      UpdateKeyPressedState(event->physical_key, event->logical_key);
-    }
-
-    FlutterKeyEvent flutterEvent = {
-        .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = event->timestamp,
-        .type = key_is_pressed ? kFlutterKeyEventTypeRepeat : kFlutterKeyEventTypeDown,
-        .physical = event->physical_key,
-        .logical = key_is_pressed ? found_pressed_logical_key->second : event->logical_key,
-        .character = getEventString(event->characters),
-        .synthesized = false,
-    };
-    SendPrimaryFlutterEvent(&flutterEvent, guard);
+    return result;
   }
 
-  void HandleUpEvent(const NativeKeyData* event, FlutterKeyCallbackGuard& guard) {
-    FML_DCHECK(!event->is_repeat) << "Unexpected repeated Up event";
-    SynchronizeModifiers(event->modifier_flag,
-                         /*ignoringFlags=*/0, event->timestamp, guard);
+  void HandlePressEvent(NSEvent* native_event, FlutterKeyCallbackGuard& guard) {
+    SynchronizeModifiers(native_event.modifierFlags,
+                         /*ignoringFlags=*/0, GetFlutterTimestampFrom(native_event.timestamp),
+                         guard);
 
-    auto found_pressed_logical_key = _pressing_records.find(event->physical_key);
-    bool key_is_pressed = found_pressed_logical_key != _pressing_records.end();
-    if (!key_is_pressed) {
-      // Normally the key up events won't be missed since macOS always sends the
-      // key up event to the window where the corresponding key down occurred.
-      // However this might happen in add-to-app scenarios if the focus is changed
-      // from the native view to the Flutter view amid the key tap.
-      guard.ResolveWithoutPrimaryEvent();
-      return;
+    uint64_t physical_key = GetPhysicalKeyForKeyCode(native_event.keyCode);
+
+    std::vector<EventType> event_types;
+    const char* character = nullptr;
+    switch (native_event.type) {
+      case NSEventTypeKeyDown:
+        if (!native_event.isARepeat) {
+          _press_tracker.RequireState(&event_types, physical_key, false, true);
+        } else {
+          _press_tracker.RequireState(&event_types, physical_key, std::nullopt, true);
+        }
+        character = getEventString(native_event);
+        break;
+      case NSEventTypeKeyUp:
+        _press_tracker.RequireState(&event_types, physical_key, std::nullopt, false);
+        break;
+      default:
+        FML_UNREACHABLE();
     }
-    uint64_t pressed_logical_key = found_pressed_logical_key->second;
-    UpdateKeyPressedState(event->physical_key, 0);
+    size_t num_events = event_types.size();
 
-    FlutterKeyEvent flutter_event = {
+    FlutterKeyEvent out_event = {
         .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = event->timestamp,
-        .type = kFlutterKeyEventTypeUp,
-        .physical = event->physical_key,
-        .logical = pressed_logical_key,
-        .character = nullptr,
-        .synthesized = false,
+        .timestamp = GetFlutterTimestampFrom(native_event.timestamp),
+        .physical = physical_key,
     };
-    SendPrimaryFlutterEvent(&flutter_event, guard);
+
+    for (size_t event_idx = 0; event_idx < num_events; event_idx += 1) {
+      EventType out_type = event_types[event_idx];
+
+      out_event.type = ToEmbedderApiType(out_type);
+
+      LogicalKeyRecord::iterator logical_key_entry;
+      if (out_type == EventType::kDown) {
+        // For down events, always update the logical key.
+        logical_key_entry =
+            _logical_key_record
+                .insert_or_assign(physical_key, _derive_logical_key(native_event, physical_key))
+                .first;
+      } else {
+        // For repeat and up events, use the existing record.
+        logical_key_entry = _logical_key_record.find(physical_key);
+        FML_DCHECK(logical_key_entry != _logical_key_record.end());
+      }
+      out_event.logical = logical_key_entry->second;
+
+      if (out_type == EventType::kDown || out_type == EventType::kRepeat) {
+        out_event.character = character;
+        character = nullptr;
+      } else {
+        out_event.character = nullptr;
+      }
+
+      // The last event is the primary event; other events are synthesized.
+      out_event.synthesized = event_idx != num_events - 1;
+
+      SendEventToEngine(&out_event, guard);
+    }
+
+    FML_DCHECK(character == nullptr) << "The character is left undispatched.";
+    if (num_events == 0) {
+      guard.ResolveWithoutPrimaryEvent();
+    }
   }
 
   void HandleCapsLockEvent(NSEvent* event, FlutterKeyCallbackGuard& guard) {
@@ -527,7 +605,19 @@ class KeyboardTracker {
     }
   }
 
-  // Send an event to the framework, expecting its response.
+  void SendEventToEngine(const FlutterKeyEvent* event, FlutterKeyCallbackGuard& guard) {
+    if (!event->synthesized) {
+      // Send a primary event to the framework, expecting its response.
+      uint64_t response_id = guard.ResolveByPending();
+      _send_event(event, response_id);
+    } else {
+      // Send a synthesized key event, never expecting its event result.
+      guard.MarkSentSynthesizedEvent();
+      _send_event(event, 0);
+    }
+  }
+
+  // Send a primary event to the framework, expecting its response.
   void SendPrimaryFlutterEvent(const FlutterKeyEvent* event, FlutterKeyCallbackGuard& guard) {
     uint64_t response_id = guard.ResolveByPending();
     _send_event(event, response_id);
@@ -609,6 +699,13 @@ class KeyboardTracker {
   // Set by the constructor.
   SendEvent _send_event;
 
+  DeriveLogicalKey _derive_logical_key;
+
+  typedef std::unordered_map<uint64_t, uint64_t> LogicalKeyRecord;
+  LogicalKeyRecord _logical_key_record;
+
+  PressStateTracker _press_tracker;
+
   // A map of presessd keys.
   //
   // The keys of the dictionary are physical keys, while the values are the logical keys
@@ -648,7 +745,7 @@ class KeyboardTracker {
 @end
 
 @implementation FlutterEmbedderKeyResponder {
-  KeyboardTracker* _tracker;
+  CommonKeyboard* _common_keyboard;
 
   FlutterSendEmbedderKeyEvent _sendEventToEngine;
 
@@ -672,16 +769,23 @@ class KeyboardTracker {
     _sendEventToEngine = sendEvent;
     _nextResponseId = 1;  // Starts at 1; 0 reserved for empty
     _pendingResponses = [NSMutableDictionary dictionary];
-    _tracker =
-        new KeyboardTracker([responder = self](const FlutterKeyEvent* event, uint64_t response_id) {
+    _common_keyboard = new CommonKeyboard(
+        /*send_event=*/
+        [responder = self](const FlutterKeyEvent* event, uint64_t response_id) {
           [responder sendEvent:*event responseId:response_id];
+        },
+        /*derive_logical_key=*/
+        [responder = self](NSEvent* event, uint64_t physical_key) {
+          NSNumber* logicalKeyFromMap = responder.layoutMap[@(event.keyCode)];
+          return logicalKeyFromMap != nil ? [logicalKeyFromMap unsignedLongLongValue]
+                                          : GetLogicalKeyForEvent(event, physical_key);
         });
   }
   return self;
 }
 
 - (void)dealloc {
-  delete _tracker;
+  delete _common_keyboard;
 }
 
 - (void)sendEvent:(const FlutterKeyEvent&)event responseId:(uint64_t)responseId {
@@ -702,20 +806,6 @@ class KeyboardTracker {
   // `synthesized`.
   NSAssert(callback != nil, @"The callback must not be nil.");
 
-  uint64_t physicalKey = GetPhysicalKeyForKeyCode(event.keyCode);
-  NSNumber* logicalKeyFromMap = self.layoutMap[@(event.keyCode)];
-  uint64_t logicalKey = logicalKeyFromMap != nil ? [logicalKeyFromMap unsignedLongLongValue]
-                                                 : GetLogicalKeyForEvent(event, physicalKey);
-  NativeKeyData native_key{
-      .timestamp = GetFlutterTimestampFrom(event.timestamp),
-      .physical_key = physicalKey,
-      .logical_key = logicalKey,
-      .characters = (event.type == NSEventTypeKeyDown) ? event.characters : nil,
-      .is_down = event.type == NSEventTypeKeyDown,
-      .is_repeat = (event.type == NSEventTypeKeyDown) ? static_cast<bool>(event.isARepeat) : false,
-      .modifier_flag = event.modifierFlags,
-  };
-
   uint64_t responseId = _nextResponseId;
   _nextResponseId += 1;
   _pendingResponses[@(responseId)] = callback;
@@ -723,13 +813,11 @@ class KeyboardTracker {
 
   switch (event.type) {
     case NSEventTypeKeyDown:
-      _tracker->HandleDownEvent(&native_key, *guarded_callback);
-      break;
     case NSEventTypeKeyUp:
-      _tracker->HandleUpEvent(&native_key, *guarded_callback);
+      _common_keyboard->HandlePressEvent(event, *guarded_callback);
       break;
     case NSEventTypeFlagsChanged:
-      _tracker->HandleFlagEvent(event, *guarded_callback);
+      _common_keyboard->HandleFlagEvent(event, *guarded_callback);
       break;
     default:
       NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
@@ -775,15 +863,15 @@ class KeyboardTracker {
                     timestamp:(NSTimeInterval)timestamp {
   auto guarded_callback =
       std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
-  _tracker->SynchronizeModifiers(modifierFlags,
-                                 /*ignoringFlags=*/0, GetFlutterTimestampFrom(timestamp),
-                                 *guarded_callback);
+  _common_keyboard->SynchronizeModifiers(modifierFlags,
+                                         /*ignoringFlags=*/0, GetFlutterTimestampFrom(timestamp),
+                                         *guarded_callback);
   guarded_callback->ResolveWithoutPrimaryEvent();
   guarded_callback->MarkSentSynthesizedEvent();
 }
 
 - (nonnull NSDictionary*)getPressedState {
-  return ToNSDictionary(_tracker->GetPressedState());
+  return ToNSDictionary(_common_keyboard->GetPressedState());
 }
 @end
 
