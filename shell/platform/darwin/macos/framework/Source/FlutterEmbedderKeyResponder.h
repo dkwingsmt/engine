@@ -43,4 +43,6 @@ typedef void (^FlutterSendEmbedderKeyEvent)(const FlutterKeyEvent& /* event */,
  */
 - (nonnull NSDictionary*)getPressedState;
 
+- (void)printPressedState;
+
 @end
