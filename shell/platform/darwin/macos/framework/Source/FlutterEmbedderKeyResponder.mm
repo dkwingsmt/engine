@@ -590,10 +590,9 @@ class CommonKeyboard {
                             NSUInteger ignoring_flags,
                             double timestamp_us,
                             FlutterKeyCallbackGuard& guard) {
-    const NSUInteger updating_mask = _modifier_flag_of_interest_mask & ~ignoring_flags;
-    const NSUInteger current_flags_of_interest = current_flags & updating_mask;
-    const NSUInteger last_flags_of_interest = _last_modifier_flags_of_interest & updating_mask;
-    NSUInteger flag_difference = current_flags_of_interest ^ last_flags_of_interest;
+    const NSUInteger current_flags_of_interest = current_flags & _modifier_flag_of_interest_mask;
+    NSUInteger flag_difference =
+        (current_flags_of_interest ^ _last_modifier_flags_of_interest) & ~ignoring_flags;
     if (flag_difference & NSEventModifierFlagCapsLock) {
       SendCapsLockTap(timestamp_us, /*synthesize_down=*/true, guard);
       flag_difference = flag_difference & ~NSEventModifierFlagCapsLock;
@@ -632,10 +631,9 @@ class CommonKeyboard {
             .synthesized = true,
         };
         SendEventToEngine(&out_event, guard);
+        _last_modifier_flags_of_interest = _last_modifier_flags_of_interest ^ current_flag;
       }
     }
-    _last_modifier_flags_of_interest =
-        (_last_modifier_flags_of_interest & ~updating_mask) | current_flags_of_interest;
   }
 
  private:
@@ -681,21 +679,6 @@ class CommonKeyboard {
     }
   }
 
-  // Send a primary event to the framework, expecting its response.
-  void SendPrimaryFlutterEvent(const FlutterKeyEvent* event, FlutterKeyCallbackGuard& guard) {
-    uint64_t response_id = guard.ResolveByPending();
-    _send_event(event, response_id);
-  }
-
-  // Send a synthesized key event, never expecting its event result.
-  //
-  // The |guard| is basically a regular guarded callback, but instead of being
-  // called, it is only used to record whether an event is sent.
-  void SendSynthesizedFlutterEvent(const FlutterKeyEvent* event, FlutterKeyCallbackGuard& guard) {
-    guard.MarkSentSynthesizedEvent();
-    _send_event(event, 0);
-  }
-
   // Send a CapsLock down event, then a CapsLock up event.
   //
   // If synthesize_down is true, then both events will be synthesized. Otherwise,
@@ -716,15 +699,11 @@ class CommonKeyboard {
         .character = nullptr,
         .synthesized = synthesize_down,
     };
-    if (!synthesize_down) {
-      SendPrimaryFlutterEvent(&flutter_event, guard);
-    } else {
-      SendSynthesizedFlutterEvent(&flutter_event, guard);
-    }
+    SendEventToEngine(&flutter_event, guard);
 
     flutter_event.type = kFlutterKeyEventTypeUp;
     flutter_event.synthesized = true;
-    SendSynthesizedFlutterEvent(&flutter_event, guard);
+    SendEventToEngine(&flutter_event, guard);
   }
 
   // The function to send converted events to.
