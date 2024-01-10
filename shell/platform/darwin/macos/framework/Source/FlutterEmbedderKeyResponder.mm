@@ -204,11 +204,10 @@ static double GetFlutterTimestampFrom(NSTimeInterval timestamp) {
 /**
  * Compute |modifierFlagOfInterestMask| out of |keyCodeToModifierFlag|.
  *
- * This is equal to the bitwise-or of all values of |keyCodeToModifierFlag| as
- * well as NSEventModifierFlagCapsLock.
+ * This is equal to the bitwise-or of all values of |keyCodeToModifierFlag|.
  */
 static NSUInteger computeModifierFlagOfInterestMask() {
-  __block NSUInteger modifierFlagOfInterestMask = NSEventModifierFlagCapsLock;
+  __block NSUInteger modifierFlagOfInterestMask = 0;
   [flutter::keyCodeToModifierFlag
       enumerateKeysAndObjectsUsingBlock:^(NSNumber* keyCode, NSNumber* flag, BOOL* stop) {
         modifierFlagOfInterestMask = modifierFlagOfInterestMask | [flag unsignedLongValue];
@@ -332,29 +331,19 @@ class FlutterKeyCallbackGuard {
   FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
 };
 
-struct NativeKeyData {
-  // Flutter timestamp in us.
-  double timestamp;
-  // Flutter physical key.
-  uint64_t physical_key;
-  // Flutter logical key.
-  uint64_t logical_key;
-  // The macOS NSEvent.character.
-  NSString* characters;
-  // Whether the event is down or repeat.
-  bool is_down;
-  // Whether the event is repeat.
-  bool is_repeat;
-  // The macOS modifier flag.
-  NSUInteger modifier_flag;
-};
-
 enum class EventType {
   kUp,
   kDown,
   kRepeat,
 };
 
+enum class LockState { kReleasedOff, kPressedOn, kReleasedOn, kPressedOff };
+
+// PressStateTracker handles keys that have two states, pressed or not, and that
+// can be uniquely indexed by their physical keys.
+//
+// The corresponding logical key is allowed to change at each down event. Some
+// methods of also allows "repeat" events.
 class PressStateTracker {
  public:
   std::vector<EventType> RequireState(uint64_t physical_key,
@@ -412,6 +401,104 @@ class PressStateTracker {
   }
 };
 
+struct StateChange {
+  EventType change;
+  bool synthesized;
+};
+
+// LockStateTracker handles keys that have four states, pressed or not, lock on
+// or off. These keys must be uniquely indexed by their logical keys.
+class LockStateTracker {
+ public:
+  std::vector<StateChange> RequireState(uint64_t logical_key,
+                                        std::optional<LockState> require_primary_state,
+                                        LockState require_after_cleanup) {
+    std::vector<StateChange> output;
+    StateMap::iterator current = _states.try_emplace(logical_key, LockState::kReleasedOff).first;
+    if (require_primary_state.has_value()) {
+      EnsureLockState(&output, current, PreviousStateOf(require_primary_state.value()),
+                      /*synthesized=*/true);
+      EnsureLockState(&output, current, require_primary_state.value(), /*synthesized=*/false);
+    }
+    EnsureLockState(&output, current, require_after_cleanup, /*synthesized=*/true);
+    return output;
+  }
+
+  std::unordered_map<uint64_t, uint64_t> GetPressedState() {
+    std::unordered_map<uint64_t, uint64_t> result;
+    if (IsPressed(_states[flutter::kCapsLockLogicalKey])) {
+      result[flutter::kCapsLockPhysicalKey] = flutter::kCapsLockLogicalKey;
+    }
+    return result;
+  }
+
+ private:
+  typedef std::unordered_map<uint64_t, LockState> StateMap;
+
+  StateMap _states;
+
+  static bool IsPressed(LockState lock_state) {
+    switch (lock_state) {
+      case LockState::kReleasedOff:
+      case LockState::kReleasedOn:
+        return false;
+      case LockState::kPressedOn:
+      case LockState::kPressedOff:
+      default:
+        FML_UNREACHABLE();
+    }
+  }
+
+  // Ensure key state requirement by optionally pushing an event to `output` and
+  // changing the value of `current` accordingly.
+  static void EnsureLockState(std::vector<StateChange>* output,
+                              StateMap::iterator& current,
+                              LockState required_state,
+                              bool synthesized) {
+    while (current->second != required_state) {
+      EventType change = ProgressState(current);
+      output->push_back({
+          .change = change,
+          .synthesized = synthesized,
+      });
+    }
+  }
+
+  static LockState PreviousStateOf(LockState target) {
+    switch (target) {
+      case LockState::kReleasedOff:
+        return LockState::kPressedOff;
+      case LockState::kPressedOn:
+        return LockState::kReleasedOff;
+      case LockState::kReleasedOn:
+        return LockState::kPressedOn;
+      case LockState::kPressedOff:
+        return LockState::kReleasedOn;
+      default:
+        FML_UNREACHABLE();
+    }
+  }
+
+  static EventType ProgressState(StateMap::iterator& current) {
+    switch (current->second) {
+      case LockState::kReleasedOff:
+        current->second = LockState::kPressedOn;
+        return EventType::kDown;
+      case LockState::kPressedOn:
+        current->second = LockState::kReleasedOn;
+        return EventType::kUp;
+      case LockState::kReleasedOn:
+        current->second = LockState::kPressedOff;
+        return EventType::kDown;
+      case LockState::kPressedOff:
+        current->second = LockState::kReleasedOff;
+        return EventType::kUp;
+      default:
+        FML_UNREACHABLE();
+    }
+  }
+};
+
 FlutterKeyEventType ToEmbedderApiType(EventType type) {
   switch (type) {
     case EventType::kUp:
@@ -436,7 +523,7 @@ class CommonKeyboard {
         _modifier_flag_of_interest_mask(computeModifierFlagOfInterestMask()) {}
 
   std::unordered_map<uint64_t, uint64_t> GetPressedState() {
-    std::unordered_map<uint64_t, uint64_t> result = _pressing_records;
+    std::unordered_map<uint64_t, uint64_t> result = _lock_tracker.GetPressedState();
     for (auto [physical_key, pressed] : _press_tracker.pressed_keys()) {
       if (pressed) {
         auto logical_key_entry = _logical_key_record.find(physical_key);
@@ -447,10 +534,21 @@ class CommonKeyboard {
     return result;
   }
 
+  void SynchronizeModifierFlags(NSUInteger current_flags, double timestamp_us) {
+    auto guard =
+        std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
+    DoSynchronizeModifierFlags(current_flags,
+                               /*ignoringFlags=*/0, timestamp_us,
+                               /*based_on_capslock_flag_change=*/false, *guard);
+    guard->ResolveWithoutPrimaryEvent();
+    guard->MarkSentSynthesizedEvent();
+  }
+
   void HandlePressEvent(NSEvent* native_event, FlutterKeyCallbackGuard& guard) {
-    SynchronizeModifiers(native_event.modifierFlags,
-                         /*ignoringFlags=*/0, GetFlutterTimestampFrom(native_event.timestamp),
-                         guard);
+    const double timestamp_us = GetFlutterTimestampFrom(native_event.timestamp);
+    DoSynchronizeModifierFlags(native_event.modifierFlags,
+                               /*ignoringFlags=*/0, timestamp_us,
+                               /*based_on_capslock_flag_change=*/false, guard);
 
     uint64_t physical_key = GetPhysicalKeyForKeyCode(native_event.keyCode);
 
@@ -505,7 +603,7 @@ class CommonKeyboard {
 
       FlutterKeyEvent out_event = {
           .struct_size = sizeof(FlutterKeyEvent),
-          .timestamp = GetFlutterTimestampFrom(native_event.timestamp),
+          .timestamp = timestamp_us,
           .type = ToEmbedderApiType(out_type),
           .physical = physical_key,
           .logical = logical_key,
@@ -523,39 +621,26 @@ class CommonKeyboard {
     }
   }
 
-  void HandleCapsLockEvent(NSEvent* event, FlutterKeyCallbackGuard& guard) {
-    SynchronizeModifiers(event.modifierFlags,
-                         /*ignoringFlags=*/NSEventModifierFlagCapsLock,
-                         GetFlutterTimestampFrom(event.timestamp), guard);
-    if ((_last_modifier_flags_of_interest & NSEventModifierFlagCapsLock) !=
-        (event.modifierFlags & NSEventModifierFlagCapsLock)) {
-      SendCapsLockTap(GetFlutterTimestampFrom(event.timestamp), /*synthesizeDown=*/false, guard);
-      _last_modifier_flags_of_interest =
-          _last_modifier_flags_of_interest ^ NSEventModifierFlagCapsLock;
-    } else {
-      guard.ResolveWithoutPrimaryEvent();
-    }
-  }
-
   void HandleFlagEvent(NSEvent* native_event, FlutterKeyCallbackGuard& guard) {
-    uint64_t physical_key = GetPhysicalKeyForKeyCode(native_event.keyCode);
+    const double timestamp_us = GetFlutterTimestampFrom(native_event.timestamp);
+    const uint64_t physical_key = GetPhysicalKeyForKeyCode(native_event.keyCode);
     if (physical_key == flutter::kCapsLockPhysicalKey) {
-      return HandleCapsLockEvent(native_event, guard);
+      DoSynchronizeModifierFlags(native_event.modifierFlags,
+                                 /*ignoringFlags=*/0, timestamp_us,
+                                 /*based_on_capslock_flag_change=*/true, guard);
+      return;
     }
 
     NSNumber* targetModifierFlagObj = flutter::keyCodeToModifierFlag[@(native_event.keyCode)];
     NSUInteger target_modifier_flag =
         targetModifierFlagObj == nil ? 0 : [targetModifierFlagObj unsignedLongValue];
-    SynchronizeModifiers(native_event.modifierFlags,
-                         /*ignoringFlags=*/target_modifier_flag,
-                         GetFlutterTimestampFrom(native_event.timestamp), guard);
+    DoSynchronizeModifierFlags(native_event.modifierFlags,
+                               /*ignoringFlags=*/target_modifier_flag, timestamp_us,
+                               /*based_on_capslock_flag_change=*/false, guard);
 
-    bool should_be_pressed = (native_event.modifierFlags & target_modifier_flag) != 0;
-
-    std::optional<EventType> maybe_event_type =
-        _press_tracker.RequireModifierState(physical_key,
-                                            /*require_pressed_after=*/should_be_pressed);
-
+    std::optional<EventType> maybe_event_type = _press_tracker.RequireModifierState(
+        physical_key,
+        /*require_pressed_after=*/native_event.modifierFlags & target_modifier_flag);
     if (maybe_event_type.has_value()) {
       uint64_t logical_key = EnsureLogicalKey(physical_key, [native_event](uint64_t physical_key) {
         return GetLogicalKeyForModifier(native_event.keyCode, physical_key);
@@ -563,7 +648,7 @@ class CommonKeyboard {
 
       FlutterKeyEvent out_event = {
           .struct_size = sizeof(FlutterKeyEvent),
-          .timestamp = GetFlutterTimestampFrom(native_event.timestamp),
+          .timestamp = timestamp_us,
           .type = ToEmbedderApiType(maybe_event_type.value()),
           .physical = physical_key,
           .logical = logical_key,
@@ -578,6 +663,19 @@ class CommonKeyboard {
     _last_modifier_flags_of_interest = native_event.modifierFlags & _modifier_flag_of_interest_mask;
   }
 
+ private:
+  using GetLogicalKey = std::function<uint64_t(uint64_t physical_key)>;
+
+  void DoSynchronizeModifierFlags(NSUInteger current_flags,
+                                  NSUInteger ignoring_flags,
+                                  double timestamp_us,
+                                  bool based_on_capslock_flag_change,
+                                  FlutterKeyCallbackGuard& guard) {
+    SynchronizeModifierKeys(current_flags, ignoring_flags, timestamp_us, guard);
+    SynchronizeCapsLock(timestamp_us, current_flags & NSEventModifierFlagCapsLock,
+                        based_on_capslock_flag_change, guard);
+  }
+
   // Compare the last modifier flags and the current, and dispatch synthesized
   // key events for each different modifier flag bit.
   //
@@ -586,17 +684,13 @@ class CommonKeyboard {
   //
   // The |guard| is basically a regular guarded callback, but instead of being
   // called, it is only used to record whether an event is sent.
-  void SynchronizeModifiers(NSUInteger current_flags,
-                            NSUInteger ignoring_flags,
-                            double timestamp_us,
-                            FlutterKeyCallbackGuard& guard) {
+  void SynchronizeModifierKeys(NSUInteger current_flags,
+                               NSUInteger ignoring_flags,
+                               double timestamp_us,
+                               FlutterKeyCallbackGuard& guard) {
     const NSUInteger current_flags_of_interest = current_flags & _modifier_flag_of_interest_mask;
     NSUInteger flag_difference =
         (current_flags_of_interest ^ _last_modifier_flags_of_interest) & ~ignoring_flags;
-    if (flag_difference & NSEventModifierFlagCapsLock) {
-      SendCapsLockTap(timestamp_us, /*synthesize_down=*/true, guard);
-      flag_difference = flag_difference & ~NSEventModifierFlagCapsLock;
-    }
     while (true) {
       const NSUInteger current_flag = lowestSetBit(flag_difference);
       if (current_flag == 0) {
@@ -636,8 +730,31 @@ class CommonKeyboard {
     }
   }
 
- private:
-  using GetLogicalKey = std::function<uint64_t(uint64_t physical_key)>;
+  void SynchronizeCapsLock(double timestamp_us,
+                           bool should_be_on,
+                           bool based_on_capslock_flag_change,
+                           FlutterKeyCallbackGuard& guard) {
+    std::optional<LockState> require_primary_state;
+    if (based_on_capslock_flag_change) {
+      require_primary_state = should_be_on ? LockState::kPressedOn : LockState::kPressedOff;
+    }
+    LockState require_after_cleanup =
+        should_be_on ? LockState::kReleasedOn : LockState::kReleasedOff;
+    for (StateChange state_change : _lock_tracker.RequireState(
+             flutter::kCapsLockLogicalKey, require_primary_state, require_after_cleanup)) {
+      FlutterKeyEvent out_event = {
+          .struct_size = sizeof(FlutterKeyEvent),
+          .timestamp = timestamp_us,
+          .type = ToEmbedderApiType(state_change.change),
+          .physical = flutter::kCapsLockPhysicalKey,
+          .logical = flutter::kCapsLockLogicalKey,
+          .character = nullptr,
+          .synthesized = state_change.synthesized,
+      };
+
+      SendEventToEngine(&out_event, guard);
+    }
+  }
 
   uint64_t EnsureLogicalKey(uint64_t physical_key,
                             GetLogicalKey get_logical_key,
@@ -655,18 +772,6 @@ class CommonKeyboard {
     return logical_key;
   }
 
-  // Update the pressing state.
-  //
-  // If `logicalKey` is not 0, `physical_key` is pressed as `logical_key`.
-  // Otherwise, `physical_key` is released.
-  void UpdateKeyPressedState(uint64_t physical_key, uint64_t logical_key) {
-    if (logical_key == 0) {
-      _pressing_records.erase(physical_key);
-    } else {
-      _pressing_records[physical_key] = logical_key;
-    }
-  }
-
   void SendEventToEngine(const FlutterKeyEvent* event, FlutterKeyCallbackGuard& guard) {
     if (!event->synthesized) {
       // Send a primary event to the framework, expecting its response.
@@ -677,33 +782,6 @@ class CommonKeyboard {
       guard.MarkSentSynthesizedEvent();
       _send_event(event, 0);
     }
-  }
-
-  // Send a CapsLock down event, then a CapsLock up event.
-  //
-  // If synthesize_down is true, then both events will be synthesized. Otherwise,
-  // the callback will be used as the callback for the down event, which is not
-  // synthesized, while the up event will always be synthesized.
-  void SendCapsLockTap(double timestamp_us, bool synthesize_down, FlutterKeyCallbackGuard& guard) {
-    // MacOS sends a down *or* an up when CapsLock is tapped, alternatively on
-    // even taps and odd taps. A CapsLock down or CapsLock up should always be
-    // converted to a down *and* an up, and the up should always be a synthesized
-    // event, since the FlutterEmbedderKeyResponder will never know when the
-    // button is released.
-    FlutterKeyEvent flutter_event = {
-        .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = timestamp_us,
-        .type = kFlutterKeyEventTypeDown,
-        .physical = flutter::kCapsLockPhysicalKey,
-        .logical = flutter::kCapsLockLogicalKey,
-        .character = nullptr,
-        .synthesized = synthesize_down,
-    };
-    SendEventToEngine(&flutter_event, guard);
-
-    flutter_event.type = kFlutterKeyEventTypeUp;
-    flutter_event.synthesized = true;
-    SendEventToEngine(&flutter_event, guard);
   }
 
   // The function to send converted events to.
@@ -717,12 +795,7 @@ class CommonKeyboard {
   LogicalKeyRecord _logical_key_record;
 
   PressStateTracker _press_tracker;
-
-  // A map of presessd keys.
-  //
-  // The keys of the dictionary are physical keys, while the values are the logical keys
-  // of the key down event.
-  std::unordered_map<uint64_t, uint64_t> _pressing_records;
+  LockStateTracker _lock_tracker;
 
   // A constant mask for NSEvent.modifierFlags that Flutter synchronizes with.
   //
@@ -873,13 +946,7 @@ class CommonKeyboard {
 
 - (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
                     timestamp:(NSTimeInterval)timestamp {
-  auto guarded_callback =
-      std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
-  _common_keyboard->SynchronizeModifiers(modifierFlags,
-                                         /*ignoringFlags=*/0, GetFlutterTimestampFrom(timestamp),
-                                         *guarded_callback);
-  guarded_callback->ResolveWithoutPrimaryEvent();
-  guarded_callback->MarkSentSynthesizedEvent();
+  _common_keyboard->SynchronizeModifierFlags(modifierFlags, GetFlutterTimestampFrom(timestamp));
 }
 
 - (nonnull NSDictionary*)getPressedState {

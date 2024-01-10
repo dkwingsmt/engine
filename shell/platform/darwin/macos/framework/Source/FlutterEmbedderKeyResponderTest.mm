@@ -1202,13 +1202,45 @@ TEST(FlutterEmbedderKeyResponderUnittests, SynchronizeCapsLockStateOnCapsLock) {
   [responder handleEvent:keyEvent(NSEventTypeFlagsChanged, 0x100, @"", @"", FALSE, kKeyCodeCapsLock)
                 callback:keyEventCallback];
 
-  EXPECT_EQ([events count], 1u);
-  EXPECT_EQ(last_handled, TRUE);
-  event = [events lastObject].data;
+  EXPECT_EQ([events count], 4u);
+  event = events[0].data;
   ASSERT_NE(event, nullptr);
-  EXPECT_EQ(event->physical, 0ull);
-  EXPECT_EQ(event->logical, 0ull);
-  EXPECT_FALSE([[events lastObject] hasCallback]);
+  EXPECT_EQ(event->type, kFlutterKeyEventTypeDown);
+  EXPECT_EQ(event->physical, kPhysicalCapsLock);
+  EXPECT_EQ(event->logical, kLogicalCapsLock);
+  EXPECT_STREQ(event->character, nullptr);
+  EXPECT_EQ(event->synthesized, true);
+  EXPECT_FALSE([events[0] hasCallback]);
+
+  event = events[1].data;
+  ASSERT_NE(event, nullptr);
+  EXPECT_EQ(event->type, kFlutterKeyEventTypeUp);
+  EXPECT_EQ(event->physical, kPhysicalCapsLock);
+  EXPECT_EQ(event->logical, kLogicalCapsLock);
+  EXPECT_STREQ(event->character, nullptr);
+  EXPECT_EQ(event->synthesized, true);
+  EXPECT_FALSE([events[1] hasCallback]);
+
+  event = events[2].data;
+  ASSERT_NE(event, nullptr);
+  EXPECT_EQ(event->type, kFlutterKeyEventTypeDown);
+  EXPECT_EQ(event->physical, kPhysicalCapsLock);
+  EXPECT_EQ(event->logical, kLogicalCapsLock);
+  EXPECT_STREQ(event->character, nullptr);
+  EXPECT_EQ(event->synthesized, false);
+  EXPECT_TRUE([events[2] hasCallback]);
+
+  event = events[3].data;
+  ASSERT_NE(event, nullptr);
+  EXPECT_EQ(event->type, kFlutterKeyEventTypeUp);
+  EXPECT_EQ(event->physical, kPhysicalCapsLock);
+  EXPECT_EQ(event->logical, kLogicalCapsLock);
+  EXPECT_STREQ(event->character, nullptr);
+  EXPECT_EQ(event->synthesized, true);
+  EXPECT_FALSE([events[3] hasCallback]);
+
+  EXPECT_EQ(last_handled, FALSE);
+  [events[2] respond:TRUE];
   EXPECT_EQ(last_handled, TRUE);
 
   [events removeAllObjects];
