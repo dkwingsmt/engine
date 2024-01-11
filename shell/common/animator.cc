@@ -4,6 +4,8 @@
 
 #include "flutter/shell/common/animator.h"
 
+#include <sstream>
+
 #include "flutter/common/constants.h"
 #include "flutter/flow/frame_timings.h"
 #include "flutter/fml/time/time_point.h"
@@ -58,8 +60,13 @@ void Animator::EnqueueTraceFlowId(uint64_t trace_flow_id) {
       });
 }
 
+void Animator::Debug(const char* message) {
+  delegate_.OnAnimatorDebug(message);
+}
+
 void Animator::BeginFrame(
     std::unique_ptr<FrameTimingsRecorder> frame_timings_recorder) {
+  delegate_.OnAnimatorDebug("Animator::BeginFrame");
   TRACE_EVENT_ASYNC_END0("flutter", "Frame Request Pending",
                          frame_request_number_);
   frame_request_number_++;
@@ -100,6 +107,7 @@ void Animator::BeginFrame(
       // frame interval.
       TRACE_EVENT0("flutter", "PipelineFull");
       RequestFrame();
+      delegate_.OnAnimatorDebug("Animator::BeginFrame pipeline full");
       return;
     }
   }
@@ -138,6 +146,9 @@ void Animator::BeginFrame(
           }
         },
         kNotifyIdleTaskWaitTime);
+    delegate_.OnAnimatorDebug("Animator::BeginFrame ended by scheduling frame");
+  } else {
+    delegate_.OnAnimatorDebug("Animator::BeginFrame frame scheduled");
   }
 }
 
@@ -146,9 +157,15 @@ void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
   // Animator::Render should be called after BeginFrame, which is indicated by
   // frame_timings_recorder_ being non-null. Otherwise, this call is ignored.
   if (frame_timings_recorder_ == nullptr) {
+    delegate_.OnAnimatorDebug("Skipping empty recorder");
     return;
   }
   has_rendered_ = true;
+  {
+    std::ostringstream oss;
+    oss << "Recorder #" << frame_timings_recorder_->GetFrameNumber();
+    delegate_.OnAnimatorDebug(oss.str().c_str());
+  }
 
   TRACE_EVENT_WITH_FRAME_NUMBER(frame_timings_recorder_, "flutter",
                                 "Animator::Render", /*flow_id_count=*/0,
@@ -170,11 +187,13 @@ void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree,
           std::move(layer_trees_tasks), std::move(frame_timings_recorder_)));
 
   if (!result.success) {
+    delegate_.OnAnimatorDebug("Fail to complete");
     FML_DLOG(INFO) << "No pending continuation to commit";
     return;
   }
 
   if (!result.is_first_item) {
+    delegate_.OnAnimatorDebug("Not first frame");
     // It has been successfully pushed to the pipeline but not as the first
     // item. Eventually the 'Rasterizer' will consume it, so we don't need to
     // notify the delegate.
@@ -245,6 +264,7 @@ void Animator::RequestFrame(bool regenerate_layer_trees) {
 }
 
 void Animator::AwaitVSync() {
+  delegate_.OnAnimatorDebug("AwaitVSync");
   waiter_->AsyncWaitForVsync(
       [self = weak_factory_.GetWeakPtr()](
           std::unique_ptr<FrameTimingsRecorder> frame_timings_recorder) {

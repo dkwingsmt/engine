@@ -1242,6 +1242,12 @@ void Shell::OnAnimatorUpdateLatestFrameTargetTime(
   }
 }
 
+void Shell::OnAnimatorDebug(const char* message) {
+  if (settings_.debug_print) {
+    settings_.debug_print(message);
+  }
+}
+
 // |Animator::Delegate|
 void Shell::OnAnimatorDraw(std::shared_ptr<FramePipeline> pipeline) {
   FML_DCHECK(is_set_up_);

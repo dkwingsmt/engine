@@ -141,6 +141,21 @@ void FlutterMain::Init(JNIEnv* env,
     fml::MessageLoop::GetCurrent().RemoveTaskObserver(key);
   };
 
+  settings.frame_rasterized_callback = [](const FrameTiming& timing) {
+    const fml::TimePoint vsync_start_time = timing.Get(FrameTiming::kVsyncStart);
+    const fml::TimePoint build_start_time = timing.Get(FrameTiming::kBuildStart);
+    const fml::TimePoint build_end_time = timing.Get(FrameTiming::kBuildFinish);
+    __android_log_print(
+        ANDROID_LOG_INFO, "Flutter",
+        "# Frame %lld build delay %lld build time %lld\n", timing.GetFrameNumber(), (build_start_time - vsync_start_time).ToMilliseconds(), (build_end_time - build_start_time).ToMilliseconds());
+  };
+
+  settings.debug_print = [](const char* message) {
+    __android_log_print(
+        ANDROID_LOG_INFO, "Flutter",
+        "%s", message);
+  };
+
   settings.log_message_callback = [](const std::string& tag,
                                      const std::string& message) {
     __android_log_print(ANDROID_LOG_INFO, tag.c_str(), "%.*s",

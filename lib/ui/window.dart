@@ -374,10 +374,7 @@ class FlutterView {
   void render(Scene scene, {Size? size}) {
     // Duplicated calls or calls outside of onBeginFrame/onDrawFrame (indicated
     // by _renderedViews being null) are ignored. See _renderedViews.
-    final bool validRender = platformDispatcher._renderedViews?.add(this) ?? false;
-    if (validRender) {
-      _render(scene as _NativeScene, size?.width ?? physicalSize.width, size?.height ?? physicalSize.height);
-    }
+    _render(scene as _NativeScene, size?.width ?? physicalSize.width, size?.height ?? physicalSize.height);
   }
 
   @Native<Void Function(Pointer<Void>, Double, Double)>(symbol: 'PlatformConfigurationNativeApi::Render')

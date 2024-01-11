@@ -435,9 +435,11 @@ Rasterizer::DoDrawResult Rasterizer::DoDraw(
   frame_timings_recorder->AssertInState(FrameTimingsRecorder::State::kBuildEnd);
 
   if (tasks.empty()) {
+    delegate_.OnAnimatorDebug("DoDraw return task empty");
     return DoDrawResult{DoDrawStatus::kDone};
   }
   if (!surface_) {
+    delegate_.OnAnimatorDebug("DoDraw return no surface");
     return DoDrawResult{DoDrawStatus::kNotSetUp};
   }
 
@@ -449,6 +451,7 @@ Rasterizer::DoDrawResult Rasterizer::DoDraw(
 
   FML_DCHECK(result.status != DoDrawStatus::kEnqueuePipeline);
   if (result.status == DoDrawStatus::kGpuUnavailable) {
+    delegate_.OnAnimatorDebug("DoDraw return GPU unavailable");
     return DoDrawResult{DoDrawStatus::kGpuUnavailable};
   }
 
@@ -627,6 +630,7 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
   // TODO(dkwingsmt): Pass in raster cache(s) for all views.
   // See https://github.com/flutter/flutter/issues/135530, item 4.
   frame_timings_recorder.RecordRasterEnd(&compositor_context_->raster_cache());
+  delegate_.OnAnimatorDebug("Rasterizer::FireNextFrameCallbackIfPresent");
   FireNextFrameCallbackIfPresent();
 
   if (surface_->GetContext()) {

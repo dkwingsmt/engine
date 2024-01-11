@@ -647,6 +647,8 @@ class Shell final : public PlatformView::Delegate,
       std::unique_ptr<AssetResolver> updated_asset_resolver,
       AssetResolver::AssetResolverType type) override;
 
+  void OnAnimatorDebug(const char* message) override;
+
   // |Animator::Delegate|
   void OnAnimatorBeginFrame(fml::TimePoint frame_target_time,
                             uint64_t frame_number) override;

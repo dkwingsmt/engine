@@ -43,6 +43,8 @@ class Animator final {
 
     virtual void OnAnimatorDrawLastLayerTrees(
         std::unique_ptr<FrameTimingsRecorder> frame_timings_recorder) = 0;
+
+    virtual void OnAnimatorDebug(const char*) = 0;
   };
 
   Animator(Delegate& delegate,
@@ -50,6 +52,8 @@ class Animator final {
            std::unique_ptr<VsyncWaiter> waiter);
 
   ~Animator();
+
+  void Debug(const char* message);
 
   void RequestFrame(bool regenerate_layer_trees = true);
 

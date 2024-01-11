@@ -88,6 +88,8 @@ using MappingsCallback = std::function<Mappings(void)>;
 
 using FrameRasterizedCallback = std::function<void(const FrameTiming&)>;
 
+using DebugPrintCallback = std::function<void(const char*)>;
+
 class DartIsolate;
 
 // TODO(https://github.com/flutter/flutter/issues/138750): Re-order fields to
@@ -114,6 +116,8 @@ struct Settings {
   MappingCallback vm_snapshot_data;
   std::string vm_snapshot_instr_path;  // deprecated
   MappingCallback vm_snapshot_instr;
+
+  DebugPrintCallback debug_print;
 
   std::string isolate_snapshot_data_path;  // deprecated
   MappingCallback isolate_snapshot_data;

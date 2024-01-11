@@ -127,6 +127,8 @@ class Rasterizer final : public SnapshotDelegate,
   ///
   class Delegate {
    public:
+    virtual void OnAnimatorDebug(const char*) = 0;
+
     //--------------------------------------------------------------------------
     /// @brief      Notifies the delegate that a frame has been rendered. The
     ///             rasterizer collects profiling information for each part of

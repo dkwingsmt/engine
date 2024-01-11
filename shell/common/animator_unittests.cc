@@ -30,6 +30,11 @@ class FakeAnimatorDelegate : public Animator::Delegate {
               (fml::TimePoint frame_target_time, uint64_t frame_number),
               (override));
 
+  MOCK_METHOD(void,
+              OnAnimatorDebug,
+              (const char*),
+              (override));
+
   void OnAnimatorNotifyIdle(fml::TimeDelta deadline) override {
     notify_idle_called_ = true;
   }

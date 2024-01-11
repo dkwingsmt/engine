@@ -50,6 +50,7 @@ class MockDelegate : public Rasterizer::Delegate {
               OnFrameRasterized,
               (const FrameTiming& frame_timing),
               (override));
+  MOCK_METHOD(void, OnAnimatorDebug, (const char*), (override));
   MOCK_METHOD(fml::Milliseconds, GetFrameBudget, (), (override));
   MOCK_METHOD(fml::TimePoint, GetLatestFrameTargetTime, (), (const, override));
   MOCK_METHOD(const TaskRunners&, GetTaskRunners, (), (const, override));
