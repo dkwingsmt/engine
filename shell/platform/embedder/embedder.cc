@@ -2221,6 +2221,8 @@ FlutterEngineResult FlutterEngineAddView(FLUTTER_API_SYMBOL(FlutterEngine)
   embedder_engine->GetShell().AddView(
       info->view_id, metrics,
       [callback = info->callback, user_data = info->user_data](bool success) {
+        printf("Shell AddView callback\n");
+        fflush(stdout);
         FlutterAddViewResult result = {};
         result.struct_size = sizeof(FlutterAddViewResult);
         result.user_data = user_data;

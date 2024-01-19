@@ -113,7 +113,8 @@ FLUTTER_DARWIN_EXPORT
  * The ID is assigned by FlutterEngine when the view controller is attached.
  *
  * If the view controller is unattached (see FlutterViewController#attached),
- * reading this property throws an assertion.
+ * reading this property throws an assertion in debug mode and is undefined in
+ * release mode.
  */
 @property(nonatomic, readonly) FlutterViewId viewId;
 
