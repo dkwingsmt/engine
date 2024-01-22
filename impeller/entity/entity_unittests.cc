@@ -2140,14 +2140,10 @@ TEST_P(EntityTest, RuntimeEffect) {
   ASSERT_TRUE(runtime_stage);
   ASSERT_TRUE(runtime_stage->IsDirty());
 
-  bool first_frame = true;
+  bool expect_dirty = true;
   Pipeline<PipelineDescriptor>* first_pipeline = nullptr;
   auto callback = [&](ContentContext& context, RenderPass& pass) -> bool {
-    if (first_frame) {
-      first_frame = false;
-    } else {
-      assert(runtime_stage->IsDirty() == false);
-    }
+    EXPECT_EQ(runtime_stage->IsDirty(), expect_dirty);
 
     auto contents = std::make_shared<RuntimeEffectContents>();
     contents->SetGeometry(Geometry::MakeCover());
@@ -2169,13 +2165,38 @@ TEST_P(EntityTest, RuntimeEffect) {
     Entity entity;
     entity.SetContents(contents);
     bool result = contents->Render(context, entity, pass);
-    if (!first_pipeline) {
+
+    if (expect_dirty) {
+      EXPECT_NE(first_pipeline, pass.GetCommands().back().pipeline.get());
       first_pipeline = pass.GetCommands().back().pipeline.get();
     } else {
       EXPECT_EQ(pass.GetCommands().back().pipeline.get(), first_pipeline);
     }
+
+    expect_dirty = false;
     return result;
   };
+
+  // Simulate some renders and hot reloading of the shader.
+  auto content_context = GetContentContext();
+  {
+    RenderTarget target;
+    testing::MockRenderPass mock_pass(GetContext(), target);
+    callback(*content_context, mock_pass);
+    callback(*content_context, mock_pass);
+
+    // Dirty the runtime stage.
+    runtime_stages = OpenAssetAsRuntimeStage("runtime_stage_example.frag.iplr");
+    runtime_stage =
+        runtime_stages[PlaygroundBackendToRuntimeStageBackend(GetBackend())];
+
+    ASSERT_TRUE(runtime_stage->IsDirty());
+    expect_dirty = true;
+
+    callback(*content_context, mock_pass);
+    callback(*content_context, mock_pass);
+  }
+
   ASSERT_TRUE(OpenPlaygroundHere(callback));
 }
 
@@ -2598,9 +2619,9 @@ TEST_P(EntityTest, SpecializationConstantsAreAppliedToVariants) {
       ContentContext(GetContext(), TypographerContextSkia::Make());
 
   auto default_color_burn = content_context.GetBlendColorBurnPipeline(
-      {.has_stencil_attachment = false});
+      {.has_depth_stencil_attachments = false});
   auto alt_color_burn = content_context.GetBlendColorBurnPipeline(
-      {.has_stencil_attachment = true});
+      {.has_depth_stencil_attachments = true});
 
   ASSERT_NE(default_color_burn, alt_color_burn);
   ASSERT_EQ(default_color_burn->GetDescriptor().GetSpecializationConstants(),
@@ -2669,7 +2690,7 @@ TEST_P(EntityTest, ContentContextOptionsHasReasonableHashFunctions) {
   opts.blend_mode = BlendMode::kColorBurn;
   auto hash_b = ContentContextOptions::Hash{}(opts);
 
-  opts.has_stencil_attachment = false;
+  opts.has_depth_stencil_attachments = false;
   auto hash_c = ContentContextOptions::Hash{}(opts);
 
   opts.primitive_type = PrimitiveType::kPoint;

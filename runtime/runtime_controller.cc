@@ -153,6 +153,10 @@ bool RuntimeController::RemoveView(int64_t view_id) {
   return false;
 }
 
+size_t RuntimeController::NumViews() const {
+  return platform_data_.viewport_metrics_for_views.size();
+}
+
 bool RuntimeController::SetViewportMetrics(int64_t view_id,
                                            const ViewportMetrics& metrics) {
   TRACE_EVENT0("flutter", "SetViewportMetrics");

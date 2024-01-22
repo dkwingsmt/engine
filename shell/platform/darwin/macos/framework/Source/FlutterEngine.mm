@@ -754,7 +754,7 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
 - (BOOL)addViewToEmbedderEngine:(FlutterViewId)viewId {
   FlutterAddViewInfo info{
       .view_id = viewId,
-      .callback = [](const FlutterAddViewResult* result){},
+      .callback = [](const FlutterAddViewResult* result) {},
   };
   FlutterEngineResult result = _embedderAPI.AddView(_engine, &info);
   return result == kSuccess;
@@ -763,7 +763,7 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
 - (BOOL)removeViewFromEmbedderEngine:(FlutterViewId)viewId {
   FlutterRemoveViewInfo info{
       .view_id = viewId,
-      .callback = [](const FlutterRemoveViewResult* result){},
+      .callback = [](const FlutterRemoveViewResult* result) {},
   };
   FlutterEngineResult result = _embedderAPI.RemoveView(_engine, &info);
   return result == kSuccess;

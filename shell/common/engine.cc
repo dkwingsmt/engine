@@ -259,6 +259,7 @@ Engine::RunStatus Engine::Run(RunConfiguration configuration) {
 }
 
 void Engine::BeginFrame(fml::TimePoint frame_time, uint64_t frame_number) {
+  MarkAsEndOfFrame();
   runtime_controller_->BeginFrame(frame_time, frame_number);
 }
 
@@ -477,6 +478,23 @@ void Engine::Render(int64_t view_id,
   }
 
   animator_->Render(view_id, std::move(layer_tree), device_pixel_ratio);
+  rendered_views_during_frame_.insert(view_id);
+  SubmitFrameIfEndOfFrame();
+}
+
+void Engine::MarkAsEndOfFrame() {
+  rendered_views_during_frame_.clear();
+}
+
+void Engine::SubmitFrameIfEndOfFrame() {
+  if (!runtime_controller_) {
+    return;
+  }
+  if (rendered_views_during_frame_.size() != 0 &&
+      rendered_views_during_frame_.size() == runtime_controller_->NumViews()) {
+    animator_->EndFrame();
+    MarkAsEndOfFrame();
+  }
 }
 
 void Engine::UpdateSemantics(SemanticsNodeUpdates update,

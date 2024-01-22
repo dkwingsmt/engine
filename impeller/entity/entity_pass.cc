@@ -249,12 +249,20 @@ static EntityPassTarget CreateRenderTarget(ContentContext& renderer,
                                            ISize size,
                                            int mip_count,
                                            const Color& clear_color) {
-  auto context = renderer.GetContext();
+  const std::shared_ptr<Context>& context = renderer.GetContext();
 
   /// All of the load/store actions are managed by `InlinePassContext` when
   /// `RenderPasses` are created, so we just set them to `kDontCare` here.
   /// What's important is the `StorageMode` of the textures, which cannot be
   /// changed for the lifetime of the textures.
+
+  if (context->GetBackendType() != Context::BackendType::kMetal) {
+    // TODO(https://github.com/flutter/flutter/issues/141495): Implement mip map
+    // generation on vulkan.
+    // TODO(https://github.com/flutter/flutter/issues/141732): Implement mip map
+    // generation on opengles.
+    mip_count = 1;
+  }
 
   RenderTarget target;
   if (context->GetCapabilities()->SupportsOffscreenMSAA()) {
@@ -325,23 +333,13 @@ bool EntityPass::Render(ContentContext& renderer,
                   Rect::MakeSize(root_render_target.GetRenderTargetSize()),
                   {.readonly = true});
 
-  int32_t required_mip_count = 1;
-  IterateAllElements(
-      [&required_mip_count, lazy_glyph_atlas = renderer.GetLazyGlyphAtlas()](
-          const Element& element) {
-        if (auto entity = std::get_if<Entity>(&element)) {
-          if (const auto& contents = entity->GetContents()) {
-            contents->PopulateGlyphAtlas(lazy_glyph_atlas,
-                                         entity->DeriveTextScale());
-          }
-        }
-        if (auto subpass = std::get_if<std::unique_ptr<EntityPass>>(&element)) {
-          const EntityPass* entity_pass = subpass->get();
-          required_mip_count =
-              std::max(required_mip_count, entity_pass->GetRequiredMipCount());
-        }
-        return true;
-      });
+  const auto& lazy_glyph_atlas = renderer.GetLazyGlyphAtlas();
+  IterateAllEntities([&lazy_glyph_atlas](const Entity& entity) {
+    if (const auto& contents = entity.GetContents()) {
+      contents->PopulateGlyphAtlas(lazy_glyph_atlas, entity.DeriveTextScale());
+    }
+    return true;
+  });
 
   ClipCoverageStack clip_coverage_stack = {ClipCoverageLayer{
       .coverage = Rect::MakeSize(root_render_target.GetRenderTargetSize()),
@@ -353,7 +351,8 @@ bool EntityPass::Render(ContentContext& renderer,
   // there's no need to set up a stencil attachment on the root render target.
   if (reads_from_onscreen_backdrop) {
     EntityPassTarget offscreen_target = CreateRenderTarget(
-        renderer, root_render_target.GetRenderTargetSize(), required_mip_count,
+        renderer, root_render_target.GetRenderTargetSize(),
+        GetRequiredMipCount(),
         GetClearColorOrDefault(render_target.GetRenderTargetSize()));
 
     if (!OnRender(renderer,  // renderer
@@ -432,7 +431,8 @@ bool EntityPass::Render(ContentContext& renderer,
   // If a root stencil was provided by the caller, then verify that it has a
   // configuration which can be used to render this pass.
   auto stencil_attachment = root_render_target.GetStencilAttachment();
-  if (stencil_attachment.has_value()) {
+  auto depth_attachment = root_render_target.GetDepthAttachment();
+  if (stencil_attachment.has_value() && depth_attachment.has_value()) {
     auto stencil_texture = stencil_attachment->texture;
     if (!stencil_texture) {
       VALIDATION_LOG << "The root RenderTarget must have a stencil texture.";
@@ -451,7 +451,7 @@ bool EntityPass::Render(ContentContext& renderer,
   // Setup a new root stencil with an optimal configuration if one wasn't
   // provided by the caller.
   else {
-    root_render_target.SetupStencilAttachment(
+    root_render_target.SetupDepthStencilAttachments(
         *renderer.GetContext(), *renderer.GetRenderTargetCache(),
         color0.texture->GetSize(),
         renderer.GetContext()->GetCapabilities()->SupportsOffscreenMSAA(),
@@ -615,7 +615,7 @@ EntityPass::EntityResult EntityPass::GetEntityForElement(
     auto subpass_target = CreateRenderTarget(
         renderer,      // renderer
         subpass_size,  // size
-        /*mip_count=*/1,
+        subpass->GetRequiredMipCount(),
         subpass->GetClearColorOrDefault(subpass_size));  // clear_color
 
     if (!subpass_target.IsValid()) {
@@ -852,7 +852,7 @@ bool EntityPass::OnRender(
         collapsed_parent_pass) const {
   TRACE_EVENT0("impeller", "EntityPass::OnRender");
 
-  auto context = renderer.GetContext();
+  const std::shared_ptr<Context>& context = renderer.GetContext();
   InlinePassContext pass_context(context, pass_target,
                                  GetTotalPassReads(renderer), GetElementCount(),
                                  collapsed_parent_pass);

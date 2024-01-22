@@ -32,11 +32,8 @@ class AngleSurfaceManager {
 
   virtual ~AngleSurfaceManager();
 
-  // Returns true if the OpenGL version is greater than or equal to the input.
-  bool GlVersion(int major, int minor);
-
-  // Returns true if the OpenGL extension is available.
-  bool HasExtension(std::string extension);
+  // Whether the manager is currently valid.
+  bool IsValid() const;
 
   // Creates an EGLSurface wrapper and backing DirectX 11 SwapChain
   // associated with window, in the appropriate format for display.
@@ -90,7 +87,7 @@ class AngleSurfaceManager {
 
   // Swaps the front and back buffers of the DX11 swapchain backing surface if
   // not null.
-  EGLBoolean SwapBuffers(int64_t surface_id);
+  virtual bool SwapBuffers();
 
   // Creates a |EGLSurface| from the provided handle.
   EGLSurface CreateSurfaceFromHandle(EGLenum handle_type,
@@ -98,7 +95,7 @@ class AngleSurfaceManager {
                                      const EGLint* attributes) const;
 
   // Gets the |EGLDisplay|.
-  EGLDisplay egl_display() const { return egl_display_; };
+  EGLDisplay egl_display() const { return display_; };
 
   // If enabled, makes the current surface's buffer swaps block until the
   // v-blank.
@@ -119,62 +116,50 @@ class AngleSurfaceManager {
   explicit AngleSurfaceManager(bool enable_impeller);
 
  private:
-  bool Initialize(bool enable_impeller);
-  bool InitializeGlVersion();
-  bool InitializeGlExtensions();
+  // Number of active instances of AngleSurfaceManager
+  static int instance_count_;
+
+  // Initialize the EGL display.
+  bool InitializeDisplay();
+
+  // Initialize the EGL configs.
+  bool InitializeConfig(bool enable_impeller);
+
+  // Initialize the EGL render and resource contexts.
+  bool InitializeContexts();
+
+  // Initialize the D3D11 device.
+  bool InitializeDevice();
+
   void CleanUp();
 
-  // Attempts to initialize EGL using ANGLE.
-  bool InitializeEGL(
-      PFNEGLGETPLATFORMDISPLAYEXTPROC egl_get_platform_display_EXT,
-      const EGLint* config,
-      bool should_log);
+  // Whether the manager was initialized successfully.
+  bool is_valid_ = false;
 
   // Whether a render surface exists for the given ID.
   bool RenderSurfaceExists(int64_t surface_id);
 
   // EGL representation of native display.
-  EGLDisplay egl_display_;
+  EGLDisplay display_ = EGL_NO_DISPLAY;
+
+  // EGL framebuffer configuration.
+  EGLConfig config_ = nullptr;
 
   // EGL representation of current rendering context.
-  EGLContext egl_context_;
+  EGLContext render_context_ = EGL_NO_CONTEXT;
 
   // EGL representation of current rendering context used for async texture
   // uploads.
-  EGLContext egl_resource_context_;
+  EGLContext resource_context_ = EGL_NO_CONTEXT;
 
-  // current frame buffer configuration.
-  EGLConfig egl_config_;
-
-  // The OpenGL major version number.
-  int gl_version_major_ = 0;
-
-  // The OpenGL minor version number.
-  int gl_version_minor_ = 0;
-
-  // The available OpenGL extensions.
-  std::unordered_set<std::string> gl_extensions_;
-
-  // State representing success or failure of display initialization used when
-  // creating surfaces.
-  bool initialize_succeeded_;
-
-  struct AngleSurface {
-    AngleSurface(EGLSurface surface, EGLint width, EGLint height)
-        : surface(surface), width(width), height(height) {}
-    EGLSurface surface = EGL_NO_SURFACE;
-    EGLint width = 0;
-    EGLint height = 0;
-  };
+  // Current render_surface that engine will draw into.
+  EGLSurface surface_ = EGL_NO_SURFACE;
 
   // Surfaces the engine can draw into.
   std::unordered_map<int64_t, std::unique_ptr<AngleSurface>> render_surfaces_;
 
   // The current D3D device.
-  Microsoft::WRL::ComPtr<ID3D11Device> resolved_device_;
-
-  // Number of active instances of AngleSurfaceManager
-  static int instance_count_;
+  Microsoft::WRL::ComPtr<ID3D11Device> resolved_device_ = nullptr;
 
   FML_DISALLOW_COPY_AND_ASSIGN(AngleSurfaceManager);
 };
