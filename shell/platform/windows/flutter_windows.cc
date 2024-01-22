@@ -82,29 +82,24 @@ static FlutterDesktopViewControllerRef CreateViewController(
       std::make_unique<flutter::FlutterWindow>(
           width, height, engine_ptr->windows_proc_table());
 
-  auto engine = std::unique_ptr<flutter::FlutterWindowsEngine>(engine_ptr);
+  // Take ownership of the engine if necessary.
+  std::unique_ptr<flutter::FlutterWindowsEngine> engine;
+  if (owns_engine) {
+    engine = std::unique_ptr<flutter::FlutterWindowsEngine>(engine_ptr);
+  }
+
   auto view = std::make_unique<flutter::FlutterWindowsView>(
       std::move(window_wrapper), engine_ptr->windows_proc_table());
   auto controller = std::make_unique<flutter::FlutterWindowsViewController>(
       std::move(engine), std::move(view));
 
-  // Create a view controller that owns the engine if necessary.
-  std::unique_ptr<flutter::FlutterWindowsViewController> controller;
-  if (owns_engine) {
-    auto engine = std::unique_ptr<flutter::FlutterWindowsEngine>(engine_ptr);
-    controller = std::make_unique<flutter::FlutterWindowsViewController>(
-        std::move(engine), std::move(view));
-  } else {
-    controller = std::make_unique<flutter::FlutterWindowsViewController>(
-        std::move(view));
-  }
-
   controller->view()->SetEngine(engine_ptr);
   controller->view()->CreateRenderSurface();
-  engine_ptr->AddView(controller->view());
+  controller->engine()->AddView(controller->view());
 
-  if (!engine_ptr->running()) {
-    if (!engine_ptr->Run()) {
+  // Launch the engine if necessary.
+  if (!controller->engine()->running()) {
+    if (!controller->engine()->Run()) {
       return nullptr;
     }
   }
@@ -115,7 +110,7 @@ static FlutterDesktopViewControllerRef CreateViewController(
   // The Windows embedder listens to accessibility updates using the
   // view's HWND. The embedder's accessibility features may be stale if
   // the app was in headless mode.
-  engine_ptr->UpdateAccessibilityFeatures();
+  controller->engine()->UpdateAccessibilityFeatures();
 
   return HandleForViewController(controller.release());
 }

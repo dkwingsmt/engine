@@ -4,7 +4,6 @@
 
 #include "flutter/shell/platform/windows/angle_surface_manager.h"
 
-#include <GLES3/gl3.h>
 #include <vector>
 
 #include "flutter/fml/logging.h"
@@ -18,10 +17,6 @@ static void LogEglError(std::string message) {
 }
 
 namespace flutter {
-
-typedef void (*glGetIntegervProc)(GLenum pname, GLint* params);
-typedef GLubyte* (*glGetStringProc)(GLenum name);
-typedef GLubyte* (*glGetStringiProc)(GLenum name, GLuint index);
 
 int AngleSurfaceManager::instance_count_ = 0;
 
@@ -196,87 +191,6 @@ bool AngleSurfaceManager::Initialize(bool enable_impeller) {
     return false;
   }
 
-  if (!MakeRenderContextCurrent()) {
-    LogEglError("Failed to make EGL context current");
-    return false;
-  }
-
-  if (!InitializeGlVersion()) {
-    LogEglError("Failed to determine OpenGL version");
-    return false;
-  }
-
-  if (!InitializeGlExtensions()) {
-    LogEglError("Failed to determine OpenGL extensions");
-    return false;
-  }
-
-  if (!ClearCurrent()) {
-    LogEglError("Unable to release the EGL context");
-    return false;
-  }
-
-  return true;
-}
-
-bool AngleSurfaceManager::InitializeGlVersion() {
-  glGetStringProc gl_get_string =
-      reinterpret_cast<glGetStringProc>(eglGetProcAddress("glGetString"));
-
-  if (!gl_get_string) {
-    return false;
-  }
-
-  int major, minor;
-  auto version = reinterpret_cast<const char*>(gl_get_string(GL_VERSION));
-  int parts = sscanf(version, "OpenGL ES %d.%d", &major, &minor);
-  if (parts != 2) {
-    return false;
-  }
-
-  gl_version_major_ = major;
-  gl_version_minor_ = minor;
-  return true;
-}
-
-bool AngleSurfaceManager::InitializeGlExtensions() {
-  glGetIntegervProc gl_get_integerv =
-      reinterpret_cast<glGetIntegervProc>(eglGetProcAddress("glGetIntegerv"));
-  glGetStringProc gl_get_string =
-      reinterpret_cast<glGetStringProc>(eglGetProcAddress("glGetString"));
-  glGetStringiProc gl_get_stringi =
-      reinterpret_cast<glGetStringiProc>(eglGetProcAddress("glGetStringi"));
-
-  // glGetStringi isn't required and is only available on OpenGL 3.0 or greater.
-  if (!gl_get_integerv || !gl_get_string) {
-    return false;
-  }
-
-  std::istringstream istream;
-  std::string extension;
-
-  if (gl_version_major_ >= 3 && gl_get_stringi) {
-    int extensions_count;
-    gl_get_integerv(GL_NUM_EXTENSIONS, &extensions_count);
-
-    for (int i = 0; i < extensions_count; i++) {
-      auto extension =
-          reinterpret_cast<const char*>(gl_get_stringi(GL_EXTENSIONS, i));
-
-      gl_extensions_.insert(std::string(extension));
-    }
-  } else {
-    istream.str(reinterpret_cast<const char*>(gl_get_string(GL_EXTENSIONS)));
-    while (std::getline(istream, extension, ' ')) {
-      gl_extensions_.insert(extension);
-    }
-  }
-
-  istream.str(::eglQueryString(egl_display_, EGL_EXTENSIONS));
-  while (std::getline(istream, extension, ' ')) {
-    gl_extensions_.insert(extension);
-  }
-
   return true;
 }
 
@@ -315,9 +229,12 @@ void AngleSurfaceManager::CleanUp() {
   }
 }
 
-bool AngleSurfaceManager::CreateSurface(HWND hwnd,
+bool AngleSurfaceManager::CreateSurface(int64_t surface_id,
+                                        HWND hwnd,
                                         EGLint width,
                                         EGLint height) {
+  FML_DCHECK(!RenderSurfaceExists(surface_id));
+
   if (!hwnd || !initialize_succeeded_) {
     return false;
   }
@@ -339,30 +256,33 @@ bool AngleSurfaceManager::CreateSurface(HWND hwnd,
     return false;
   }
 
-  surface_width_ = width;
-  surface_height_ = height;
-  render_surface_ = surface;
+  render_surfaces_.emplace(
+      surface_id, std::make_unique<AngleSurface>(surface, width, height));
   return true;
 }
 
-void AngleSurfaceManager::ResizeSurface(HWND hwnd,
+void AngleSurfaceManager::ResizeSurface(int64_t surface_id,
+                                        HWND hwnd,
                                         EGLint width,
                                         EGLint height,
                                         bool vsync_enabled) {
   FML_DCHECK(RenderSurfaceExists(surface_id));
 
-  // TODO: Destroying the surface and re-creating it is expensive.
-  // Ideally this would use ANGLE's automatic surface sizing instead.
-  // See: https://github.com/flutter/flutter/issues/79427
-  ClearContext();
-  DestroySurface();
-  if (!CreateSurface(hwnd, width, height)) {
-    FML_LOG(ERROR)
-        << "AngleSurfaceManager::ResizeSurface failed to create surface";
+  EGLint existing_width, existing_height;
+  GetSurfaceDimensions(surface_id, &existing_width, &existing_height);
+  if (width != existing_width || height != existing_height) {
+    // TODO: Destroying the surface and re-creating it is expensive.
+    // Ideally this would use ANGLE's automatic surface sizing instead.
+    // See: https://github.com/flutter/flutter/issues/79427
+    ClearContext();
+    DestroySurface(surface_id);
+    if (!CreateSurface(surface_id, hwnd, width, height)) {
+      FML_LOG(ERROR)
+          << "AngleSurfaceManager::ResizeSurface failed to create surface";
+    }
   }
-}
 
-SetVSyncEnabled(vsync_enabled);
+  SetVSyncEnabled(surface_id, vsync_enabled);
 }
 
 void AngleSurfaceManager::GetSurfaceDimensions(int64_t surface_id,
@@ -378,8 +298,8 @@ void AngleSurfaceManager::GetSurfaceDimensions(int64_t surface_id,
   // sized by ANGLE to avoid expensive surface destroy & re-create. With
   // automatic sizing, ANGLE could resize the surface before Flutter asks it to,
   // which would break resize redraw synchronization.
-  *width = surface_width_;
-  *height = surface_height_;
+  *width = render_surfaces_[surface_id]->width;
+  *height = render_surfaces_[surface_id]->height;
 }
 
 void AngleSurfaceManager::DestroySurface(int64_t surface_id) {
@@ -442,8 +362,8 @@ bool AngleSurfaceManager::RenderSurfaceExists(int64_t surface_id) {
   return render_surfaces_.find(surface_id) != render_surfaces_.end();
 }
 
-void AngleSurfaceManager::SetVSyncEnabled(bool enabled) {
-  if (!MakeCurrent()) {
+void AngleSurfaceManager::SetVSyncEnabled(int64_t surface_id, bool enabled) {
+  if (!MakeSurfaceCurrent(surface_id)) {
     LogEglError("Unable to make surface current to update the swap interval");
     return;
   }

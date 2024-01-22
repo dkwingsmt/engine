@@ -828,9 +828,9 @@ TEST(FlutterWindowsViewTest, WindowResizeTests) {
 
   EXPECT_CALL(*windows_proc_table.get(), DwmIsCompositionEnabled)
       .WillOnce(Return(true));
-  EXPECT_CALL(
-      *surface_manager.get(),
-      ResizeSurface(_, /*width=*/500, /*height=*/500, /*enable_vsync=*/false))
+  EXPECT_CALL(*surface_manager.get(),
+              ResizeSurface(_, _, /*width=*/500, /*height=*/500,
+                            /*enable_vsync=*/false))
       .Times(1);
 
   FlutterWindowsView view(std::move(window_binding_handler),
@@ -859,8 +859,57 @@ TEST(FlutterWindowsViewTest, WindowResizeTests) {
   // Wait until the platform thread has started the window resize.
   metrics_sent_latch.Wait();
 
-  // Complete the window resize by requesting a buffer with the new window size.
-  view.GetFrameBufferId(500, 500);
+  // Complete the window resize by reporting a frame with the new window size.
+  view.OnFrameGenerated(500, 500);
+  resized_latch.Wait();
+}
+
+// Verify that an empty frame completes a view resize.
+TEST(FlutterWindowsViewTest, TestEmptyFrameResizes) {
+  std::unique_ptr<FlutterWindowsEngine> engine = GetTestEngine();
+  EngineModifier modifier(engine.get());
+
+  auto window_binding_handler =
+      std::make_unique<NiceMock<MockWindowBindingHandler>>();
+  auto windows_proc_table = std::make_shared<MockWindowsProcTable>();
+  std::unique_ptr<MockAngleSurfaceManager> surface_manager =
+      std::make_unique<MockAngleSurfaceManager>();
+
+  EXPECT_CALL(*windows_proc_table.get(), DwmIsCompositionEnabled)
+      .WillOnce(Return(true));
+  EXPECT_CALL(*surface_manager.get(),
+              ResizeSurface(_, _, /*width=*/500, /*height=*/500,
+                            /*enable_vsync=*/false))
+      .Times(1);
+  EXPECT_CALL(*surface_manager.get(), DestroySurface).Times(1);
+
+  FlutterWindowsView view(std::move(window_binding_handler),
+                          std::move(windows_proc_table));
+  modifier.SetSurfaceManager(std::move(surface_manager));
+  view.SetEngine(engine.get());
+
+  fml::AutoResetWaitableEvent metrics_sent_latch;
+  modifier.embedder_api().SendWindowMetricsEvent = MOCK_ENGINE_PROC(
+      SendWindowMetricsEvent,
+      ([&metrics_sent_latch](auto engine,
+                             const FlutterWindowMetricsEvent* event) {
+        metrics_sent_latch.Signal();
+        return kSuccess;
+      }));
+
+  fml::AutoResetWaitableEvent resized_latch;
+  std::thread([&resized_latch, &view]() {
+    // Start the window resize. This sends the new window metrics
+    // and then blocks until another thread completes the window resize.
+    view.OnWindowSizeChanged(500, 500);
+    resized_latch.Signal();
+  }).detach();
+
+  // Wait until the platform thread has started the window resize.
+  metrics_sent_latch.Wait();
+
+  // Complete the window resize by reporting an empty frame.
+  view.OnEmptyFrameGenerated();
   resized_latch.Wait();
 }
 
@@ -1235,10 +1284,10 @@ TEST(FlutterWindowsViewTest, DisablesVSyncAtStartup) {
                           std::move(windows_proc_table));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _))
+  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _, _))
       .Times(1)
       .WillOnce(Return(true));
-  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(false)).Times(1);
+  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(_, false)).Times(1);
   EXPECT_CALL(*surface_manager.get(), ClearCurrent).WillOnce(Return(true));
 
   EXPECT_CALL(*surface_manager.get(), DestroySurface).Times(1);
@@ -1270,10 +1319,10 @@ TEST(FlutterWindowsViewTest, EnablesVSyncAtStartup) {
                           std::move(windows_proc_table));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _))
+  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _, _))
       .Times(1)
       .WillOnce(Return(true));
-  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(true)).Times(1);
+  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(_, true)).Times(1);
   EXPECT_CALL(*surface_manager.get(), ClearCurrent).WillOnce(Return(true));
 
   EXPECT_CALL(*engine.get(), Stop).Times(1);
@@ -1305,7 +1354,7 @@ TEST(FlutterWindowsViewTest, DisablesVSyncAfterStartup) {
                           std::move(windows_proc_table));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _))
+  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _, _))
       .Times(1)
       .WillOnce(Return(true));
   EXPECT_CALL(*engine.get(), PostRasterThreadTask)
@@ -1313,7 +1362,7 @@ TEST(FlutterWindowsViewTest, DisablesVSyncAfterStartup) {
         callback();
         return true;
       });
-  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(false)).Times(1);
+  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(_, false)).Times(1);
   EXPECT_CALL(*surface_manager.get(), ClearCurrent).Times(0);
 
   EXPECT_CALL(*engine.get(), Stop).Times(1);
@@ -1346,7 +1395,7 @@ TEST(FlutterWindowsViewTest, EnablesVSyncAfterStartup) {
                           std::move(windows_proc_table));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _))
+  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _, _))
       .Times(1)
       .WillOnce(Return(true));
   EXPECT_CALL(*engine.get(), PostRasterThreadTask)
@@ -1354,7 +1403,7 @@ TEST(FlutterWindowsViewTest, EnablesVSyncAfterStartup) {
         callback();
         return true;
       });
-  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(true)).Times(1);
+  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(_, true)).Times(1);
   EXPECT_CALL(*surface_manager.get(), ClearCurrent).Times(0);
 
   EXPECT_CALL(*engine.get(), Stop).Times(1);
@@ -1400,8 +1449,8 @@ TEST(FlutterWindowsViewTest, UpdatesVSyncOnDwmUpdates) {
                           std::move(windows_proc_table));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(true)).Times(1);
-  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(false)).Times(1);
+  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(_, true)).Times(1);
+  EXPECT_CALL(*surface_manager.get(), SetVSyncEnabled(_, false)).Times(1);
 
   EXPECT_CALL(*engine.get(), Stop).Times(1);
   EXPECT_CALL(*surface_manager.get(), DestroySurface).Times(1);

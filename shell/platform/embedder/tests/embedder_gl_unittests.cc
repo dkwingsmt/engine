@@ -43,8 +43,6 @@
 namespace flutter {
 namespace testing {
 
-static constexpr int64_t kImplicitViewId = 0ll;
-
 using EmbedderTest = testing::EmbedderTest;
 
 static constexpr int64_t kImplicitViewId = 0;

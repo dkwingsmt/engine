@@ -17,13 +17,17 @@ class MockAngleSurfaceManager : public AngleSurfaceManager {
  public:
   MockAngleSurfaceManager() : AngleSurfaceManager(false) {}
 
-  MOCK_METHOD(bool, CreateSurface, (HWND, EGLint, EGLint), (override));
-  MOCK_METHOD(void, ResizeSurface, (HWND, EGLint, EGLint, bool), (override));
-  MOCK_METHOD(void, DestroySurface, (), (override));
+  MOCK_METHOD(bool, CreateSurface, (int64_t, HWND, EGLint, EGLint), (override));
+  MOCK_METHOD(void,
+              ResizeSurface,
+              (int64_t, HWND, EGLint, EGLint, bool),
+              (override));
+  MOCK_METHOD(void, DestroySurface, (int64_t), (override));
 
-  MOCK_METHOD(bool, MakeCurrent, (), (override));
+  MOCK_METHOD(bool, MakeRenderContextCurrent, (), (override));
+  MOCK_METHOD(bool, MakeSurfaceCurrent, (int64_t), (override));
   MOCK_METHOD(bool, ClearCurrent, (), (override));
-  MOCK_METHOD(void, SetVSyncEnabled, (bool), (override));
+  MOCK_METHOD(void, SetVSyncEnabled, (int64_t, bool), (override));
 
  private:
   FML_DISALLOW_COPY_AND_ASSIGN(MockAngleSurfaceManager);
