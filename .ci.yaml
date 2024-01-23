@@ -30,14 +30,11 @@ platform_properties:
           {"dependency": "open_jdk", "version": "version:17"}
         ]
       device_type: none
-      cpu: x86
-      os: Mac-12|Mac-13
+      os: Mac-13
       $flutter/osx_sdk : >-
         {
-          "sdk_version": "14e300c"
+          "sdk_version": "15a240d"
         }
-    dimensions:
-      mac_model: "Macmini8,1|Macmini9,1"
   windows:
     properties:
       # CIPD flutter/java/openjdk/$platform
@@ -129,6 +126,10 @@ targets:
         [
           "builder",
           "git"
+        ]
+      ignore_cache_paths: >-
+        [
+          "builder/src/flutter/prebuilts/SDKs"
         ]
       gclient_variables: >-
         {
@@ -381,10 +382,10 @@ targets:
         ]
       $flutter/osx_sdk : >-
         {
-          "sdk_version": "14e300c"
+          "sdk_version": "15a240d"
         }
     drone_dimensions:
-      - os=Mac-12|Mac-13
+      - os=Mac-13
 
   - name: Linux mac_unopt
     recipe: engine_v2/engine_v2
@@ -402,10 +403,10 @@ targets:
       config_name: mac_ios_engine
       $flutter/osx_sdk : >-
         {
-          "sdk_version": "14e300c"
+          "sdk_version": "15a240d"
         }
     drone_dimensions:
-      - os=Mac-12|Mac-13
+      - os=Mac-13
       - cpu=x86
 
   - name: Mac impeller-cmake-example

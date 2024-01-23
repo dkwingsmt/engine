@@ -11,6 +11,7 @@
 #include "flutter/impeller/aiks/picture.h"
 #include "flutter/impeller/golden_tests/golden_digest.h"
 #include "flutter/impeller/golden_tests/metal_screenshotter.h"
+#include "flutter/impeller/golden_tests/vulkan_screenshotter.h"
 #include "impeller/typographer/backends/skia/typographer_context_skia.h"
 #include "impeller/typographer/typographer_context.h"
 
@@ -53,6 +54,10 @@ static const std::vector<std::string> kSkipTests = {
     // Gold.
     "impeller_Play_AiksTest_TextRotated_Metal",
     "impeller_Play_AiksTest_TextRotated_Vulkan",
+    // Runtime stage based tests get confused with a Metal context.
+    "impeller_Play_AiksTest_CanRenderClippedRuntimeEffects_Vulkan",
+    "impeller_Play_AiksTest_CaptureContext_Metal",
+    "impeller_Play_AiksTest_CaptureContext_Vulkan",
 };
 
 namespace {
@@ -73,7 +78,7 @@ std::string GetGoldenFilename() {
   return GetTestName() + ".png";
 }
 
-bool SaveScreenshot(std::unique_ptr<testing::MetalScreenshot> screenshot) {
+bool SaveScreenshot(std::unique_ptr<testing::Screenshot> screenshot) {
   if (!screenshot || !screenshot->GetBytes()) {
     return false;
   }
@@ -87,15 +92,19 @@ bool SaveScreenshot(std::unique_ptr<testing::MetalScreenshot> screenshot) {
 }  // namespace
 
 struct GoldenPlaygroundTest::GoldenPlaygroundTestImpl {
-  GoldenPlaygroundTestImpl()
-      : screenshotter(new testing::MetalScreenshotter()) {}
-  std::unique_ptr<testing::MetalScreenshotter> screenshotter;
+  std::unique_ptr<testing::Screenshotter> screenshotter;
   ISize window_size = ISize{1024, 768};
 };
 
 GoldenPlaygroundTest::GoldenPlaygroundTest()
     : typographer_context_(TypographerContextSkia::Make()),
-      pimpl_(new GoldenPlaygroundTest::GoldenPlaygroundTestImpl()) {}
+      pimpl_(new GoldenPlaygroundTest::GoldenPlaygroundTestImpl()) {
+  if (GetParam() == PlaygroundBackend::kMetal) {
+    pimpl_->screenshotter = std::make_unique<testing::MetalScreenshotter>();
+  } else if (GetParam() == PlaygroundBackend::kVulkan) {
+    pimpl_->screenshotter = std::make_unique<testing::VulkanScreenshotter>();
+  }
+}
 
 GoldenPlaygroundTest::~GoldenPlaygroundTest() = default;
 
@@ -151,7 +160,20 @@ bool GoldenPlaygroundTest::OpenPlaygroundHere(Picture picture) {
 bool GoldenPlaygroundTest::OpenPlaygroundHere(
     AiksPlaygroundCallback
         callback) {  // NOLINT(performance-unnecessary-value-param)
-  return false;
+  AiksContext renderer(GetContext(), typographer_context_);
+
+  std::optional<Picture> picture;
+  std::unique_ptr<testing::Screenshot> screenshot;
+  for (int i = 0; i < 2; ++i) {
+    picture = callback(renderer);
+    if (!picture.has_value()) {
+      return false;
+    }
+    screenshot = pimpl_->screenshotter->MakeScreenshot(
+        renderer, picture.value(), pimpl_->window_size);
+  }
+
+  return SaveScreenshot(std::move(screenshot));
 }
 
 std::shared_ptr<Texture> GoldenPlaygroundTest::CreateTextureForFixture(
