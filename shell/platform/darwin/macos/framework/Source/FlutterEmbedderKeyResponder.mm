@@ -272,9 +272,9 @@ struct FlutterKeyPendingResponse {
  * Guards a |AsyncKeyCallback| to make sure it's handled exactly once
  * throughout |FlutterEmbedderKeyResponder.handleEvent|.
  *
- * A callback can either be handled with |pendTo|, or with |resolveTo:|.
- * Either way, the callback cannot be handled again, or an assertion will be
- * thrown.
+ * A callback can be resolved either with |ResolveByPending| or
+ * |ResolveByHandling|. Either way, the callback cannot be resolved again, or an
+ * assertion will be thrown.
  */
 class FlutterKeyCallbackGuard {
  public:
@@ -292,11 +292,12 @@ class FlutterKeyCallbackGuard {
   }
 
   /**
-   * Handle the callback by storing it to pending responses and return the response ID.
+   * Mark that this guard has been used to send a primary event a return the
+   * stored response ID.
    */
   uint64_t ResolveByPending() {
     FML_DCHECK(!_resolved) << "This callback has been resolved.";
-    FML_DCHECK(_response_id != 0) << "Unexpected empty response";
+    FML_DCHECK(_response_id != kDontNeedResponse) << "Unexpected empty response";
     if (_resolved) {
       return 0;
     }
@@ -305,20 +306,21 @@ class FlutterKeyCallbackGuard {
     return _response_id;
   }
 
-  void ResolveWithoutPrimaryEvent() {
+  /**
+   * Mark that this guard has been resolved by directly invoking the handler callback
+   * and without a primary event.
+   */
+  void ResolveByHandling() {
     FML_DCHECK(!_resolved) << "This callback has been resolved.";
     if (_resolved) {
       return;
     }
     _resolved = true;
-    _sent_primary_event = false;
   }
 
   void MarkSentSynthesizedEvent() { _sent_synthesized_events = true; }
 
   bool resolved() const { return _resolved; }
-
-  bool sent_primary_event() const { return _sent_primary_event; }
 
   bool sent_any_events() const { return _sent_primary_event || _sent_synthesized_events; }
 
@@ -540,7 +542,6 @@ class CommonKeyboard {
     DoSynchronizeModifierFlags(current_flags,
                                /*ignoringFlags=*/0, timestamp_us,
                                /*based_on_capslock_flag_change=*/false, *guard);
-    guard->ResolveWithoutPrimaryEvent();
     guard->MarkSentSynthesizedEvent();
   }
 
@@ -616,9 +617,6 @@ class CommonKeyboard {
     }
 
     FML_DCHECK(pending_character == nullptr) << "The character is left undispatched.";
-    if (num_events == 0) {
-      guard.ResolveWithoutPrimaryEvent();
-    }
   }
 
   void HandleFlagEvent(NSEvent* native_event, FlutterKeyCallbackGuard& guard) {
@@ -656,8 +654,6 @@ class CommonKeyboard {
           .synthesized = false,
       };
       SendEventToEngine(&out_event, guard);
-    } else {
-      guard.ResolveWithoutPrimaryEvent();
     }
 
     _last_modifier_flags_of_interest = native_event.modifierFlags & _modifier_flag_of_interest_mask;
@@ -907,10 +903,10 @@ class CommonKeyboard {
     default:
       NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
   }
-  NSAssert(guarded_callback->resolved(), @"The guard is not resolved");
   // Every handleEvent's callback expects a reply. If the native event generates
   // no primary events, reply it now with "handled".
-  if (!guarded_callback->sent_primary_event()) {
+  if (!guarded_callback->resolved()) {
+    guarded_callback->ResolveByHandling();
     [self handleResponseForId:responseId withResult:true];
   }
   // Every native event must send at least one event to satisfy the protocol for
