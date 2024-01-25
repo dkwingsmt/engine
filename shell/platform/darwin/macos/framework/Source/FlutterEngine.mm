@@ -53,6 +53,24 @@ static NSString* const kEnhancedUserInterfaceKey = @"AXEnhancedUserInterface";
 /// Clipboard plain text format.
 constexpr char kTextPlainFormat[] = "text/plain";
 
+static FlutterWindowMetricsEvent metricsEventOfViewController(
+    FlutterViewController* viewController) {
+  NSView* view = viewController.flutterView;
+  CGRect scaledBounds = [view convertRectToBacking:view.bounds];
+  CGSize scaledSize = scaledBounds.size;
+  double pixelRatio = view.bounds.size.width == 0 ? 1 : scaledSize.width / view.bounds.size.width;
+  auto displayId = [view.window.screen.deviceDescription[@"NSScreenNumber"] integerValue];
+  return FlutterWindowMetricsEvent{
+      .struct_size = sizeof(FlutterWindowMetricsEvent),
+      .width = static_cast<size_t>(scaledSize.width),
+      .height = static_cast<size_t>(scaledSize.height),
+      .pixel_ratio = pixelRatio,
+      .left = static_cast<size_t>(scaledBounds.origin.x),
+      .top = static_cast<size_t>(scaledBounds.origin.y),
+      .display_id = static_cast<uint64_t>(displayId),
+  };
+}
+
 #pragma mark -
 
 // Records an active handler of the messenger (FlutterEngine) that listens to
@@ -133,7 +151,8 @@ constexpr char kTextPlainFormat[] = "text/plain";
  *
  * This method returns true if the operation is successful.
  */
-- (BOOL)addViewToEmbedderEngine:(FlutterViewId)viewId;
+- (BOOL)addViewToEmbedderEngine:(FlutterViewId)viewId
+                     controller:(FlutterViewController*)viewController;
 
 /**
  * Notifies the Engine of the removal of the specified view.
@@ -685,17 +704,15 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
   [self sendUserLocales];
 
   // Update window metric for all view controllers.
-  NSEnumerator* viewControllerEnumerator = [_viewControllers objectEnumerator];
-  FlutterViewController* nextViewController;
-  while ((nextViewController = [viewControllerEnumerator nextObject])) {
-    FlutterViewId viewId = nextViewController.viewId;
+  for (NSNumber* viewIdObject in [_viewControllers keyEnumerator]) {
+    FlutterViewController* viewController = [_viewControllers objectForKey:viewIdObject];
+    FlutterViewId viewId = [viewIdObject longLongValue];
     // The implicit view should never be added.
     if (viewId == kFlutterImplicitViewId) {
       continue;
     }
-    bool successful = [self addViewToEmbedderEngine:viewId];
+    bool successful = [self addViewToEmbedderEngine:viewId controller:viewController];
     NSAssert(successful, @"Failed to add view %lld.", viewId);
-    [self updateWindowMetricsForViewController:nextViewController];
   }
 
   [self updateDisplayConfig];
@@ -736,7 +753,7 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
   NSAssert(![controller attached],
            @"The incoming view controller is already attached to an engine.");
   NSAssert([_viewControllers objectForKey:@(viewId)] == nil, @"The requested view ID is occupied.");
-  [controller setUpWithEngine:self viewId:viewId threadSynchronizer:_threadSynchronizer];
+  [controller startAttachingWithEngine:self viewId:viewId threadSynchronizer:_threadSynchronizer];
   NSAssert(controller.viewId == viewId, @"Failed to assign view ID.");
   [_viewControllers setObject:controller forKey:@(viewId)];
   _macOSCompositor->AddView(viewId);
@@ -751,10 +768,21 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
   }
 }
 
-- (BOOL)addViewToEmbedderEngine:(FlutterViewId)viewId {
+- (BOOL)addViewToEmbedderEngine:(FlutterViewId)viewId
+                     controller:(FlutterViewController*)viewController {
+  FlutterWindowMetricsEvent metricsEvent = metricsEventOfViewController(viewController);
+  metricsEvent.view_id = viewId;
   FlutterAddViewInfo info{
+      .struct_size = sizeof(FlutterAddViewInfo),
+      .user_data = (__bridge void*)viewController,
       .view_id = viewId,
-      .callback = [](const FlutterAddViewResult* result){},
+      .view_metrics = &metricsEvent,
+      .callback =
+          [](const FlutterAddViewResult* result) {
+            FlutterViewController* viewController =
+                (__bridge FlutterViewController*)result->user_data;
+            [viewController finishAttaching];
+          },
   };
   FlutterEngineResult result = _embedderAPI.AddView(_engine, &info);
   return result == kSuccess;
@@ -762,8 +790,9 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
 
 - (BOOL)removeViewFromEmbedderEngine:(FlutterViewId)viewId {
   FlutterRemoveViewInfo info{
+      .struct_size = sizeof(FlutterRemoveViewInfo),
       .view_id = viewId,
-      .callback = [](const FlutterRemoveViewResult* result){},
+      .callback = [](const FlutterRemoveViewResult* result) {},
   };
   FlutterEngineResult result = _embedderAPI.RemoveView(_engine, &info);
   return result == kSuccess;
@@ -798,6 +827,7 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
              @"you should use FlutterViewController#init(engine:, nibName, bundle:) instead.",
              controller.engine);
     [self registerViewController:controller forId:kFlutterImplicitViewId];
+    [controller finishAttaching];
   } else if (currentController != nil && controller == nil) {
     NSAssert(currentController.viewId == kFlutterImplicitViewId,
              @"The default controller has an unexpected ID %llu", currentController.viewId);
@@ -863,7 +893,7 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
   FlutterViewId viewId = [self generateViewId];
   [self registerViewController:controller forId:viewId];
   if (_engine != nullptr) {
-    return [self addViewToEmbedderEngine:viewId];
+    return [self addViewToEmbedderEngine:viewId controller:controller];
   } else {
     // The engine will be notified of the new view when it's launched.
     return true;
@@ -964,24 +994,12 @@ static void OnPlatformMessage(const FlutterPlatformMessage* message, FlutterEngi
   if (!_engine || !viewController || !viewController.viewLoaded) {
     return;
   }
+  NSAssert([viewController attached], @"The provided view controller is not attached.");
   NSAssert([self viewControllerForId:viewController.viewId] == viewController,
            @"The provided view controller is not attached to this engine.");
-  NSView* view = viewController.flutterView;
-  CGRect scaledBounds = [view convertRectToBacking:view.bounds];
-  CGSize scaledSize = scaledBounds.size;
-  double pixelRatio = view.bounds.size.width == 0 ? 1 : scaledSize.width / view.bounds.size.width;
-  auto displayId = [view.window.screen.deviceDescription[@"NSScreenNumber"] integerValue];
-  const FlutterWindowMetricsEvent windowMetricsEvent = {
-      .struct_size = sizeof(windowMetricsEvent),
-      .width = static_cast<size_t>(scaledSize.width),
-      .height = static_cast<size_t>(scaledSize.height),
-      .pixel_ratio = pixelRatio,
-      .left = static_cast<size_t>(scaledBounds.origin.x),
-      .top = static_cast<size_t>(scaledBounds.origin.y),
-      .display_id = static_cast<uint64_t>(displayId),
-      .view_id = viewController.viewId,
-  };
-  _embedderAPI.SendWindowMetricsEvent(_engine, &windowMetricsEvent);
+  FlutterWindowMetricsEvent metricsEvent = metricsEventOfViewController(viewController);
+  metricsEvent.view_id = viewController.viewId;
+  _embedderAPI.SendWindowMetricsEvent(_engine, &metricsEvent);
 }
 
 - (void)sendPointerEvent:(const FlutterPointerEvent&)event {

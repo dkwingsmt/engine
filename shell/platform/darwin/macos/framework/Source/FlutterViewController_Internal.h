@@ -29,19 +29,38 @@
 - (BOOL)isDispatchingKeyEvent:(nonnull NSEvent*)event;
 
 /**
- * Set up the controller with `engine` and `id`, and other engine-level classes.
+ * Called by FlutterEngine when it starts the attaching process with this view controller.
  *
- * This method is called by FlutterEngine. A view controller must be set up
- * before being used, and must be set up only once until detachFromEngine:.
+ * After this method, the view controller is considered attached, but trying to
+ * get viewIdentifier will be blocked until attaching is finished.
+ *
+ * This method can only be called when the view controller is detached.
  */
-- (void)setUpWithEngine:(nonnull FlutterEngine*)engine
-                 viewId:(FlutterViewId)viewId
-     threadSynchronizer:(nonnull FlutterThreadSynchronizer*)threadSynchronizer;
+- (void)startAttachingWithEngine:(nonnull FlutterEngine*)engine
+                          viewId:(FlutterViewId)viewId
+              threadSynchronizer:(nonnull FlutterThreadSynchronizer*)threadSynchronizer;
 
 /**
- * Reset the `engine` and `id` of this controller.
+ * Called by FlutterEngine when it has the complete information to finish the
+ * attaching process.
  *
- * This method is called by FlutterEngine.
+ * This method must be called on a non-platform thread, since the platform thread
+ * is likely blocked on getting viewIdentifier.
+ *
+ * After this method, the view controller becomes usable.
+ *
+ * This method can only be called when the view controller has started attaching.
+ */
+- (void)finishAttaching;
+
+/**
+ * Called by FlutterEngine when it no longer operates this view controller.
+ *
+ * This method resets several fields of this controller, including `engine` and
+ * `viewIdentifier`.
+ *
+ * This method can only be called when the view controller has attached to the engine,
+ * with the attaching process either finished or not.
  */
 - (void)detachFromEngine;
 

@@ -334,15 +334,17 @@ void OnKeyboardLayoutChanged(CFNotificationCenterRef center,
 
   std::shared_ptr<flutter::AccessibilityBridgeMac> _bridge;
 
-  FlutterViewId _id;
+  FlutterViewId _viewId;
 
   // FlutterViewController does not actually uses the synchronizer, but only
   // passes it to FlutterView.
   FlutterThreadSynchronizer* _threadSynchronizer;
+
+  std::unique_ptr<std::promise<void>> _waitingToFinishAttaching;
 }
 
-@synthesize viewId = _viewId;
 @dynamic accessibilityBridge;
+@dynamic viewId;
 
 /**
  * Performs initialization that's common between the different init paths.
@@ -482,7 +484,11 @@ static void CommonInit(FlutterViewController* controller, FlutterEngine* engine)
 }
 
 - (FlutterViewId)viewId {
-  NSAssert([self attached], @"This view controller is not attached.");
+  NSAssert([self attached], @"Trying to read the view ID for an unattached view controller.");
+  if (_waitingToFinishAttaching != nullptr) {
+    std::shared_future<void> finishAttaching = _waitingToFinishAttaching->get_future();
+    finishAttaching.wait();
+  }
   return _viewId;
 }
 
@@ -510,14 +516,22 @@ static void CommonInit(FlutterViewController* controller, FlutterEngine* engine)
   return _bridge;
 }
 
-- (void)setUpWithEngine:(FlutterEngine*)engine
-                 viewId:(FlutterViewId)viewId
-     threadSynchronizer:(FlutterThreadSynchronizer*)threadSynchronizer {
+- (void)startAttachingWithEngine:(nonnull FlutterEngine*)engine
+                          viewId:(FlutterViewId)viewId
+              threadSynchronizer:(nonnull FlutterThreadSynchronizer*)threadSynchronizer {
   NSAssert(_engine == nil, @"Already attached to an engine %@.", _engine);
   _engine = engine;
-  _viewId = viewId;
   _threadSynchronizer = threadSynchronizer;
+  _viewId = viewId;
+  _waitingToFinishAttaching = std::make_unique<std::promise<void>>();
   [_threadSynchronizer registerView:_viewId];
+}
+
+- (void)finishAttaching {
+  NSAssert(_waitingToFinishAttaching != nil,
+           @"The view controller is not waiting to finish attaching.", _engine);
+  _waitingToFinishAttaching->set_value();
+  _waitingToFinishAttaching = nullptr;
 }
 
 - (void)detachFromEngine {
@@ -525,6 +539,10 @@ static void CommonInit(FlutterViewController* controller, FlutterEngine* engine)
   [_threadSynchronizer deregisterView:_viewId];
   _threadSynchronizer = nil;
   _engine = nil;
+  if (_waitingToFinishAttaching != nullptr) {
+    _waitingToFinishAttaching->set_value();
+  }
+  _waitingToFinishAttaching = nullptr;
 }
 
 - (BOOL)attached {
