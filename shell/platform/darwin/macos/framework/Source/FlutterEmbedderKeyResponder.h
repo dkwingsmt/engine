@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef FLUTTER_SHELL_PLATFORM_DARWIN_MACOS_FRAMEWORK_SOURCE_FLUTTEREMBEDDERKEYRESPONDER_H_
+#define FLUTTER_SHELL_PLATFORM_DARWIN_MACOS_FRAMEWORK_SOURCE_FLUTTEREMBEDDERKEYRESPONDER_H_
+
 #import <Cocoa/Cocoa.h>
 
 #import "flutter/shell/platform/darwin/macos/framework/Source/FlutterKeyPrimaryResponder.h"
@@ -46,3 +49,5 @@ typedef void (^FlutterSendEmbedderKeyEvent)(const FlutterKeyEvent& /* event */,
 - (void)printPressedState;
 
 @end
+
+#endif  // FLUTTER_SHELL_PLATFORM_DARWIN_MACOS_FRAMEWORK_SOURCE_FLUTTEREMBEDDERKEYRESPONDER_H_
