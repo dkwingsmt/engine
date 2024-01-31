@@ -784,20 +784,6 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   delete _lock_tracker;
 }
 
-- (void)sendEvent:(const FlutterKeyEvent&)event guard:(FlutterKeyCallbackGuard&)guard {
-  if (event.synthesized) {
-    // Send a synthesized key event, never expecting its event result.
-    guard.MarkSentSynthesizedEvent();
-    _sendEventToEngine(event, nullptr, nullptr);
-  } else {
-    // Send a primary event to the framework, expecting its response.
-    uint64_t response_id = guard.ResolveByPending();
-    // The `pending` is released in `HandleResponse`.
-    FlutterKeyPendingResponse* pending = new FlutterKeyPendingResponse{self, response_id};
-    _sendEventToEngine(event, HandleResponse, pending);
-  }
-}
-
 - (void)handleEvent:(NSEvent*)event callback:(FlutterAsyncKeyCallback)callback {
   // The conversion algorithm relies on a non-nil callback to properly compute
   // `synthesized`.
@@ -811,15 +797,10 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   switch (event.type) {
     case NSEventTypeKeyDown:
     case NSEventTypeKeyUp:
-      [self DoSynchronizeModifierFlags:event.modifierFlags
-                         ignoringFlags:0
-                             timestamp:event.timestamp
-             basedOnCapslockFlagChange:false
-                                 guard:*guarded_callback];
-      [self HandlePressEvent:event guard:*guarded_callback];
+      [self handlePressEvent:event guard:*guarded_callback];
       break;
     case NSEventTypeFlagsChanged:
-      [self HandleFlagEvent:event guard:*guarded_callback];
+      [self handleFlagEvent:event guard:*guarded_callback];
       break;
     default:
       NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
@@ -851,9 +832,41 @@ class NativeEventMacosModifierFlag : public NativeEvent {
            _lastModifierFlagsOfInterest, event.modifierFlags & _modifierFlagOfInterestMask);
 }
 
+- (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
+                    timestamp:(NSTimeInterval)timestamp {
+  auto guard =
+      std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
+  [self synchronizeAllModifierFlags:modifierFlags
+                      ignoringFlags:0
+                          timestamp:timestamp
+              isACapslockFlagChange:false
+                              guard:*guard];
+  guard->MarkSentSynthesizedEvent();
+}
+
 #pragma mark - Private
 
-- (void)HandlePressEvent:(NSEvent*)event guard:(FlutterKeyCallbackGuard&)guard {
+- (void)sendEvent:(const FlutterKeyEvent&)event guard:(FlutterKeyCallbackGuard&)guard {
+  if (event.synthesized) {
+    // Send a synthesized key event, never expecting its event result.
+    guard.MarkSentSynthesizedEvent();
+    _sendEventToEngine(event, nullptr, nullptr);
+  } else {
+    // Send a primary event to the framework, expecting its response.
+    uint64_t response_id = guard.ResolveByPending();
+    // The `pending` is released in `HandleResponse`.
+    FlutterKeyPendingResponse* pending = new FlutterKeyPendingResponse{self, response_id};
+    _sendEventToEngine(event, HandleResponse, pending);
+  }
+}
+
+- (void)handlePressEvent:(NSEvent*)event guard:(FlutterKeyCallbackGuard&)guard {
+  [self synchronizeAllModifierFlags:event.modifierFlags
+                      ignoringFlags:0
+                          timestamp:event.timestamp
+              isACapslockFlagChange:false
+                              guard:guard];
+
   NativeEventMacosText native_event(event, self.layoutMap);
   std::vector<FlutterKeyEvent> events;
   switch (event.type) {
@@ -880,14 +893,14 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   }
 }
 
-- (void)HandleFlagEvent:(NSEvent*)event guard:(FlutterKeyCallbackGuard&)guard {
+- (void)handleFlagEvent:(NSEvent*)event guard:(FlutterKeyCallbackGuard&)guard {
   const uint64_t physical_key = GetPhysicalKeyForKeyCode(event.keyCode);
   if (physical_key == flutter::kCapsLockPhysicalKey) {
-    [self DoSynchronizeModifierFlags:event.modifierFlags
-                       ignoringFlags:0
-                           timestamp:event.timestamp
-           basedOnCapslockFlagChange:true
-                               guard:guard];
+    [self synchronizeAllModifierFlags:event.modifierFlags
+                        ignoringFlags:0
+                            timestamp:event.timestamp
+                isACapslockFlagChange:true
+                                guard:guard];
     return;
   }
 
@@ -895,11 +908,11 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   NSNumber* targetModifierFlagObj = flutter::keyCodeToModifierFlag[@(event.keyCode)];
   NSUInteger target_modifier_flag =
       targetModifierFlagObj == nil ? 0 : [targetModifierFlagObj unsignedLongValue];
-  [self DoSynchronizeModifierFlags:event.modifierFlags
-                     ignoringFlags:target_modifier_flag
-                         timestamp:event.timestamp
-         basedOnCapslockFlagChange:false
-                             guard:guard];
+  [self synchronizeAllModifierFlags:event.modifierFlags
+                      ignoringFlags:target_modifier_flag
+                          timestamp:event.timestamp
+              isACapslockFlagChange:false
+                              guard:guard];
 
   std::vector<FlutterKeyEvent> events;
   bool require_pressed_after_primary = event.modifierFlags & target_modifier_flag;
@@ -914,19 +927,19 @@ class NativeEventMacosModifierFlag : public NativeEvent {
       setBitMask(_lastModifierFlagsOfInterest, target_modifier_flag, require_pressed_after_primary);
 }
 
-- (void)DoSynchronizeModifierFlags:(NSUInteger)current_flags
-                     ignoringFlags:(NSUInteger)ignoring_flags
-                         timestamp:(NSTimeInterval)timestamp
-         basedOnCapslockFlagChange:(bool)based_on_capslock_flag_change
-                             guard:(FlutterKeyCallbackGuard&)guard {
-  [self SynchronizeModifierKeys:current_flags
-                  ignoringFlags:ignoring_flags
-                      timestamp:timestamp
-                          guard:guard];
-  [self SynchronizeCapsLock:timestamp
-                     shouldBeOn:current_flags & NSEventModifierFlagCapsLock
-      basedOnCapslockFlagChange:based_on_capslock_flag_change
-                          guard:guard];
+- (void)synchronizeAllModifierFlags:(NSUInteger)current_flags
+                      ignoringFlags:(NSUInteger)ignoring_flags
+                          timestamp:(NSTimeInterval)timestamp
+              isACapslockFlagChange:(bool)is_a_capslock_flag_change
+                              guard:(FlutterKeyCallbackGuard&)guard {
+  [self synchronizePressModifierFlags:current_flags
+                        ignoringFlags:ignoring_flags
+                            timestamp:timestamp
+                                guard:guard];
+  [self synchronizeCapsLock:current_flags & NSEventModifierFlagCapsLock
+                  timestamp:timestamp
+      isACapslockFlagChange:is_a_capslock_flag_change
+                      guard:guard];
 }
 
 // Compare the last modifier flags and the current, and dispatch synthesized
@@ -937,10 +950,10 @@ class NativeEventMacosModifierFlag : public NativeEvent {
 //
 // The |guard| is basically a regular guarded callback, but instead of being
 // called, it is only used to record whether an event is sent.
-- (void)SynchronizeModifierKeys:(NSUInteger)current_flags
-                  ignoringFlags:(NSUInteger)ignoring_flags
-                      timestamp:(NSTimeInterval)timestamp
-                          guard:(FlutterKeyCallbackGuard&)guard {
+- (void)synchronizePressModifierFlags:(NSUInteger)current_flags
+                        ignoringFlags:(NSUInteger)ignoring_flags
+                            timestamp:(NSTimeInterval)timestamp
+                                guard:(FlutterKeyCallbackGuard&)guard {
   const NSUInteger current_flags_of_interest = current_flags & _modifierFlagOfInterestMask;
   NSUInteger flag_difference =
       (current_flags_of_interest ^ _lastModifierFlagsOfInterest) & ~ignoring_flags;
@@ -964,13 +977,13 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   }
 }
 
-- (void)SynchronizeCapsLock:(NSTimeInterval)timestamp
-                   shouldBeOn:(bool)should_be_on
-    basedOnCapslockFlagChange:(bool)based_on_capslock_flag_change
-                        guard:(FlutterKeyCallbackGuard&)guard {
+- (void)synchronizeCapsLock:(bool)should_be_on
+                  timestamp:(NSTimeInterval)timestamp
+      isACapslockFlagChange:(bool)is_a_capslock_flag_change
+                      guard:(FlutterKeyCallbackGuard&)guard {
   const double timestamp_us = GetFlutterTimestampFrom(timestamp);
   std::optional<LockState> require_primary_state;
-  if (based_on_capslock_flag_change) {
+  if (is_a_capslock_flag_change) {
     require_primary_state = should_be_on ? LockState::kPressedOn : LockState::kPressedOff;
   }
   LockState require_after_cleanup = should_be_on ? LockState::kReleasedOn : LockState::kReleasedOff;
@@ -995,18 +1008,6 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   NSAssert(callback != nil, @"Invalid response ID %llu", responseId);
   callback(handled);
   [_pendingResponses removeObjectForKey:@(responseId)];
-}
-
-- (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
-                    timestamp:(NSTimeInterval)timestamp {
-  auto guard =
-      std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
-  [self DoSynchronizeModifierFlags:modifierFlags
-                     ignoringFlags:0
-                         timestamp:timestamp
-         basedOnCapslockFlagChange:false
-                             guard:*guard];
-  guard->MarkSentSynthesizedEvent();
 }
 
 - (nonnull NSDictionary*)getPressedState {
