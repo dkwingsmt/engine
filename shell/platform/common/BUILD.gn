@@ -58,7 +58,7 @@ source_set("common_cpp_input") {
 
   deps = [
     "//flutter/fml:fml",
-    "//flutter/shell/platform/embedder:embedder_as_internal_library",
+    "//flutter/shell/platform/embedder:embedder_headers",
   ]
 }
 
