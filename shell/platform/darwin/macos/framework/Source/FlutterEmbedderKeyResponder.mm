@@ -294,22 +294,40 @@ class NativeEvent {
 
 enum class LockState { kReleasedOff, kPressedOn, kReleasedOn, kPressedOff };
 
-class StateTrackerBase {
+class PhysicallyIndexed {
  protected:
   uint64_t EnsureLogicalKey(NativeEvent& native_event, bool force_update = false) {
     const uint64_t physical_key = native_event.physical_key();
     if (!force_update) {
-      auto found_entry = _logical_key_record.find(physical_key);
-      if (found_entry != _logical_key_record.end()) {
+      auto found_entry = _physical_to_logical.find(physical_key);
+      if (found_entry != _physical_to_logical.end()) {
         return found_entry->second;
       }
     }
     const uint64_t logical_key = native_event.logical_key();
-    _logical_key_record[physical_key] = logical_key;
+    _physical_to_logical[physical_key] = logical_key;
     return logical_key;
   }
 
-  std::unordered_map<uint64_t, uint64_t> _logical_key_record;
+  std::unordered_map<uint64_t, uint64_t> _physical_to_logical;
+};
+
+class LogicallyIndexed {
+ protected:
+  uint64_t EnsurePhysicalKey(NativeEvent& native_event, bool force_update = false) {
+    const uint64_t logical_key = native_event.logical_key();
+    if (!force_update) {
+      auto found_entry = _logical_to_physical.find(logical_key);
+      if (found_entry != _logical_to_physical.end()) {
+        return found_entry->second;
+      }
+    }
+    const uint64_t physical_key = native_event.physical_key();
+    _logical_to_physical[logical_key] = physical_key;
+    return physical_key;
+  }
+
+  std::unordered_map<uint64_t, uint64_t> _logical_to_physical;
 };
 
 // PressStateTracker handles keys that have two states, pressed or not, and that
@@ -317,15 +335,15 @@ class StateTrackerBase {
 //
 // The corresponding logical key is allowed to change at each down event. Some
 // methods of also allows "repeat" events.
-class PressStateTracker : public StateTrackerBase {
+class PressStateTracker : protected PhysicallyIndexed {
  public:
   std::unordered_map<uint64_t, uint64_t> GetPressedState() {
     std::unordered_map<uint64_t, uint64_t> result;
     for (auto [physical_key, pressed] : _pressed_keys) {
       if (pressed) {
-        auto logical_key_entry = _logical_key_record.find(physical_key);
-        FML_DCHECK(logical_key_entry != _logical_key_record.end());
-        result[physical_key] = logical_key_entry->second;
+        auto found_entry = _physical_to_logical.find(physical_key);
+        FML_DCHECK(found_entry != _physical_to_logical.end());
+        result[physical_key] = found_entry->second;
       }
     }
     return result;
@@ -473,11 +491,48 @@ struct StateChange {
 
 // LockStateTracker handles keys that have four states, pressed or not, lock on
 // or off. These keys must be uniquely indexed by their logical keys.
-class LockStateTracker {
+class LockStateTracker : protected LogicallyIndexed {
  public:
-  std::vector<StateChange> RequireState(uint64_t logical_key,
-                                        std::optional<LockState> require_primary_state,
-                                        LockState require_after_cleanup) {
+  void RequireState(std::vector<FlutterKeyEvent>* output,
+                    NativeEvent& source_event,
+                    std::optional<LockState> require_primary_state,
+                    LockState require_after_cleanup) {
+    const uint64_t logical_key = source_event.logical_key();
+    const double timestamp = source_event.timestamp();
+    for (StateChange state_change :
+         ModelState(logical_key, require_primary_state, require_after_cleanup)) {
+      const uint64_t physical_key =
+          EnsurePhysicalKey(source_event, /*force_update=*/state_change.change == EventType::kDown);
+      output->push_back(FlutterKeyEvent{
+          .struct_size = sizeof(FlutterKeyEvent),
+          .timestamp = timestamp,
+          .type = ToEmbedderApiType(state_change.change),
+          .physical = physical_key,
+          .logical = logical_key,
+          .character = nullptr,
+          .synthesized = state_change.synthesized,
+      });
+    }
+  }
+
+  std::unordered_map<uint64_t, uint64_t> GetPressedState() {
+    std::unordered_map<uint64_t, uint64_t> result;
+    for (auto [logical_key, lock_state] : _states) {
+      if (IsPressed(lock_state)) {
+        auto found_entry = _logical_to_physical.find(logical_key);
+        FML_DCHECK(found_entry != _logical_to_physical.end());
+        result[found_entry->second] = logical_key;
+      }
+    }
+    return result;
+  }
+
+ private:
+  typedef std::unordered_map<uint64_t, LockState> StateMap;
+
+  std::vector<StateChange> ModelState(uint64_t logical_key,
+                                      std::optional<LockState> require_primary_state,
+                                      LockState require_after_cleanup) {
     std::vector<StateChange> output;
     StateMap::iterator current = _states.try_emplace(logical_key, LockState::kReleasedOff).first;
     if (require_primary_state.has_value()) {
@@ -488,17 +543,6 @@ class LockStateTracker {
     EnsureLockState(&output, current, require_after_cleanup, /*synthesized=*/true);
     return output;
   }
-
-  std::unordered_map<uint64_t, uint64_t> GetPressedState() {
-    std::unordered_map<uint64_t, uint64_t> result;
-    if (IsPressed(_states[flutter::kCapsLockLogicalKey])) {
-      result[flutter::kCapsLockPhysicalKey] = flutter::kCapsLockLogicalKey;
-    }
-    return result;
-  }
-
- private:
-  typedef std::unordered_map<uint64_t, LockState> StateMap;
 
   StateMap _states;
 
@@ -713,6 +757,20 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   }
 
   NSUInteger _modifier_flag;
+  NSTimeInterval _timestamp;
+};
+
+class NativeEventMacosCapsLock : public NativeEvent {
+ public:
+  NativeEventMacosCapsLock(NSTimeInterval timestamp) : _timestamp(timestamp) {}
+
+  uint64_t physical_key() override { return flutter::kCapsLockPhysicalKey; }
+
+  uint64_t logical_key() override { return flutter::kCapsLockLogicalKey; }
+
+  double timestamp() override { return GetFlutterTimestampFrom(_timestamp); }
+
+ private:
   NSTimeInterval _timestamp;
 };
 
@@ -981,25 +1039,17 @@ class NativeEventMacosModifierFlag : public NativeEvent {
                   timestamp:(NSTimeInterval)timestamp
       isACapslockFlagChange:(bool)is_a_capslock_flag_change
                       guard:(FlutterKeyCallbackGuard&)guard {
-  const double timestamp_us = GetFlutterTimestampFrom(timestamp);
+  NativeEventMacosCapsLock native_event(timestamp);
   std::optional<LockState> require_primary_state;
   if (is_a_capslock_flag_change) {
     require_primary_state = should_be_on ? LockState::kPressedOn : LockState::kPressedOff;
   }
   LockState require_after_cleanup = should_be_on ? LockState::kReleasedOn : LockState::kReleasedOff;
-  for (StateChange state_change : _lock_tracker->RequireState(
-           flutter::kCapsLockLogicalKey, require_primary_state, require_after_cleanup)) {
-    FlutterKeyEvent out_event = {
-        .struct_size = sizeof(FlutterKeyEvent),
-        .timestamp = timestamp_us,
-        .type = ToEmbedderApiType(state_change.change),
-        .physical = flutter::kCapsLockPhysicalKey,
-        .logical = flutter::kCapsLockLogicalKey,
-        .character = nullptr,
-        .synthesized = state_change.synthesized,
-    };
 
-    [self sendEvent:out_event guard:guard];
+  std::vector<FlutterKeyEvent> events;
+  _lock_tracker->RequireState(&events, native_event, require_primary_state, require_after_cleanup);
+  for (FlutterKeyEvent& event : events) {
+    [self sendEvent:event guard:guard];
   }
 }
 
