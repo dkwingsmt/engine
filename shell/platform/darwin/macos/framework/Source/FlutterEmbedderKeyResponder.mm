@@ -172,6 +172,10 @@ static NSUInteger computeModifierFlagOfInterestMask() {
   return modifierFlagOfInterestMask;
 }
 
+static NSUInteger setBitMask(NSUInteger base, NSUInteger mask, bool value) {
+  return (base & ~mask) | (value ? mask : 0);
+}
+
 /**
  * The C-function sent to the embedder's |SendKeyEvent|, wrapping
  * |FlutterEmbedderKeyResponder.handleResponse|.
@@ -339,7 +343,6 @@ class PressStateTracker : public StateTrackerBase {
     for (EventType event_type : event_types) {
       const uint64_t logical_key =
           EnsureLogicalKey(source_event, /*force_update=*/event_type == EventType::kDown);
-      ;
       output->push_back(FlutterKeyEvent{
           .struct_size = sizeof(FlutterKeyEvent),
           .timestamp = source_event.timestamp(),
@@ -366,15 +369,17 @@ class PressStateTracker : public StateTrackerBase {
 
   void RequireModifierKeyState(std::vector<FlutterKeyEvent>* output,
                                NativeEvent& source_event,
-                               bool require_pressed_before_primary,
+                               std::optional<bool> require_pressed_before_primary,
                                std::optional<bool> require_pressed_after_primary) {
     FML_DCHECK(output != nullptr);
 
     const uint64_t physical_key = source_event.physical_key();
     std::vector<ModifierStateChange> state_changes;
-    ModelModifierState(&state_changes, physical_key,
-                       /*require_pressed_after=*/require_pressed_before_primary,
-                       /*synthesized=*/true);
+    if (require_pressed_before_primary.has_value()) {
+      ModelModifierState(&state_changes, physical_key,
+                         /*require_pressed_after=*/require_pressed_before_primary.value(),
+                         /*synthesized=*/true);
+    }
     if (require_pressed_after_primary.has_value()) {
       ModelModifierState(&state_changes, physical_key,
                          /*require_pressed_after=*/require_pressed_after_primary.value(),
@@ -383,7 +388,6 @@ class PressStateTracker : public StateTrackerBase {
     for (ModifierStateChange& state_change : state_changes) {
       const uint64_t logical_key =
           EnsureLogicalKey(source_event, /*force_update=*/state_change.type == EventType::kDown);
-      ;
       output->push_back(FlutterKeyEvent{
           .struct_size = sizeof(FlutterKeyEvent),
           .timestamp = source_event.timestamp(),
@@ -585,8 +589,8 @@ class NativeEventMacos : public NativeEvent {
   NSEvent* native_event() { return (__bridge NSEvent*)_native_event; }
 
  private:
-  void* _native_event;
-  uint64_t _physical_key;
+  void* _native_event = nullptr;
+  uint64_t _physical_key = 0;
 };
 
 class NativeEventMacosText : public NativeEventMacos {
@@ -901,13 +905,13 @@ class NativeEventMacosModifierFlag : public NativeEvent {
   bool require_pressed_after_primary = event.modifierFlags & target_modifier_flag;
   _press_tracker->RequireModifierKeyState(
       &events, native_event,
-      /*require_pressed_before_primary=*/!require_pressed_after_primary,
+      /*require_pressed_before_primary=*/std::nullopt,
       /*require_pressed_after_primary=*/require_pressed_after_primary);
   for (FlutterKeyEvent& event : events) {
     [self sendEvent:event guard:guard];
   }
-  _lastModifierFlagsOfInterest = (_lastModifierFlagsOfInterest & ~target_modifier_flag) |
-                                 (require_pressed_after_primary ? 0 : target_modifier_flag);
+  _lastModifierFlagsOfInterest =
+      setBitMask(_lastModifierFlagsOfInterest, target_modifier_flag, require_pressed_after_primary);
 }
 
 - (void)DoSynchronizeModifierFlags:(NSUInteger)current_flags
@@ -953,7 +957,7 @@ class NativeEventMacosModifierFlag : public NativeEvent {
                                             /*require_pressed_before_primary=*/should_be_pressed,
                                             /*require_pressed_after_primary=*/std::nullopt);
     _lastModifierFlagsOfInterest =
-        (_lastModifierFlagsOfInterest & ~current_flag) | (should_be_pressed ? 0 : current_flag);
+        setBitMask(_lastModifierFlagsOfInterest, current_flag, should_be_pressed);
   }
   for (FlutterKeyEvent& event : events) {
     [self sendEvent:event guard:guard];
