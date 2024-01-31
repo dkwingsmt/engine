@@ -438,6 +438,7 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 
 @implementation FlutterEmbedderKeyResponder {
   flutter::PressStateTracker* _press_tracker;
+  flutter::ModifierStateTracker* _modifier_tracker;
   flutter::LockStateTracker* _lock_tracker;
 
   FlutterSendEmbedderKeyEvent _sendEventToEngine;
@@ -485,6 +486,7 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
     _nextResponseId = 1;  // Starts at 1; 0 reserved for empty
     _pendingResponses = [NSMutableDictionary dictionary];
     _press_tracker = new flutter::PressStateTracker;
+    _modifier_tracker = new flutter::ModifierStateTracker;
     _lock_tracker = new flutter::LockStateTracker;
     _modifierFlagOfInterestMask = computeModifierFlagOfInterestMask();
     _lastModifierFlagsOfInterest = 0;
@@ -494,6 +496,7 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 
 - (void)dealloc {
   delete _press_tracker;
+  delete _modifier_tracker;
   delete _lock_tracker;
 }
 
@@ -629,7 +632,7 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 
   std::vector<FlutterKeyEvent> events;
   bool require_pressed_after_primary = event.modifierFlags & target_modifier_flag;
-  _press_tracker->RequireModifierKeyState(
+  _modifier_tracker->RequireModifierKeyState(
       &events, native_event,
       /*require_pressed_before_primary=*/std::nullopt,
       /*require_pressed_after_primary=*/require_pressed_after_primary);
@@ -679,9 +682,9 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
     flag_difference = flag_difference & ~current_flag;
     BOOL should_be_pressed = (current_flags_of_interest & current_flag) != 0;
     NativeEventMacosModifierFlag source_event(current_flag, timestamp);
-    _press_tracker->RequireModifierKeyState(&events, source_event,
-                                            /*require_pressed_before_primary=*/should_be_pressed,
-                                            /*require_pressed_after_primary=*/std::nullopt);
+    _modifier_tracker->RequireModifierKeyState(&events, source_event,
+                                               /*require_pressed_before_primary=*/should_be_pressed,
+                                               /*require_pressed_after_primary=*/std::nullopt);
     _lastModifierFlagsOfInterest =
         setBitMask(_lastModifierFlagsOfInterest, current_flag, should_be_pressed);
   }
@@ -719,6 +722,8 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
   std::unordered_map<uint64_t, uint64_t> result;
   auto press_state = _press_tracker->GetPressedState();
   result.insert(press_state.begin(), press_state.end());
+  auto modifier_state = _modifier_tracker->GetPressedState();
+  result.insert(modifier_state.begin(), modifier_state.end());
   auto lock_state = _lock_tracker->GetPressedState();
   result.insert(lock_state.begin(), lock_state.end());
   return ToNSDictionary(result);

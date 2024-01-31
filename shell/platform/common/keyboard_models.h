@@ -5,11 +5,11 @@
 #ifndef FLUTTER_SHELL_PLATFORM_COMMON_KEYBOARD_MODELS_H_
 #define FLUTTER_SHELL_PLATFORM_COMMON_KEYBOARD_MODELS_H_
 
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
-#include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/fml/macros.h"
+#include "flutter/shell/platform/embedder/embedder.h"
 
 namespace flutter {
 
@@ -38,14 +38,16 @@ class NativeEvent {
 
 class PhysicallyIndexed {
  protected:
-  uint64_t EnsureLogicalKey(NativeEvent& native_event, bool force_update = false);
+  uint64_t EnsureLogicalKey(NativeEvent& native_event,
+                            bool force_update = false);
 
   std::unordered_map<uint64_t, uint64_t> _physical_to_logical;
 };
 
 class LogicallyIndexed {
  protected:
-  uint64_t EnsurePhysicalKey(NativeEvent& native_event, bool force_update = false);
+  uint64_t EnsurePhysicalKey(NativeEvent& native_event,
+                             bool force_update = false);
 
   std::unordered_map<uint64_t, uint64_t> _logical_to_physical;
 };
@@ -64,10 +66,31 @@ class PressStateTracker : private PhysicallyIndexed {
                            std::optional<bool> require_pressed_before,
                            bool require_pressed_after);
 
-  void RequireModifierKeyState(std::vector<FlutterKeyEvent>* output,
-                               NativeEvent& source_event,
-                               std::optional<bool> require_pressed_before_primary,
-                               std::optional<bool> require_pressed_after_primary);
+ private:
+  typedef std::unordered_map<uint64_t, bool> StateMap;
+
+  std::vector<EventType> ModelTextKeyEvent(
+      uint64_t physical_key,
+      std::optional<bool> require_pressed_before,
+      bool require_pressed_after);
+
+  StateMap _pressed_keys;
+
+  // Ensure key state requirement by optionally pushing an event to `output` and
+  // changing the value of `current` accordingly.
+  static std::optional<EventType> EnsurePressed(StateMap::iterator current,
+                                                bool require_pressed);
+};
+
+class ModifierStateTracker : private LogicallyIndexed {
+ public:
+  std::unordered_map<uint64_t, uint64_t> GetPressedState();
+
+  void RequireModifierKeyState(
+      std::vector<FlutterKeyEvent>* output,
+      NativeEvent& source_event,
+      std::optional<bool> require_pressed_before_primary,
+      std::optional<bool> require_pressed_after_primary);
 
  private:
   typedef std::unordered_map<uint64_t, bool> StateMap;
@@ -76,10 +99,6 @@ class PressStateTracker : private PhysicallyIndexed {
     EventType type;
     bool synthesized;
   };
-
-  std::vector<EventType> ModelTextKeyEvent(uint64_t physical_key,
-                                           std::optional<bool> require_pressed_before,
-                                           bool require_pressed_after);
 
   void ModelModifierState(std::vector<ModifierStateChange>* output,
                           uint64_t physical_key,
@@ -90,12 +109,13 @@ class PressStateTracker : private PhysicallyIndexed {
 
   // Ensure key state requirement by optionally pushing an event to `output` and
   // changing the value of `current` accordingly.
-  static std::optional<EventType> EnsurePressed(StateMap::iterator current, bool require_pressed);
+  static std::optional<EventType> EnsurePressed(StateMap::iterator current,
+                                                bool require_pressed);
 };
 
 // LockStateTracker handles keys that have four states, pressed or not, lock on
 // or off. These keys must be uniquely indexed by their logical keys.
-class LockStateTracker : protected LogicallyIndexed {
+class LockStateTracker : private LogicallyIndexed {
  public:
   void RequireState(std::vector<FlutterKeyEvent>* output,
                     NativeEvent& source_event,
@@ -112,9 +132,10 @@ class LockStateTracker : protected LogicallyIndexed {
 
   typedef std::unordered_map<uint64_t, LockState> StateMap;
 
-  std::vector<StateChange> ModelState(uint64_t logical_key,
-                                      std::optional<LockState> require_primary_state,
-                                      LockState require_after_cleanup);
+  std::vector<StateChange> ModelState(
+      uint64_t logical_key,
+      std::optional<LockState> require_primary_state,
+      LockState require_after_cleanup);
 
   StateMap _states;
 
@@ -130,4 +151,4 @@ class LockStateTracker : protected LogicallyIndexed {
 
 }  // namespace flutter
 
-#endif // FLUTTER_SHELL_PLATFORM_COMMON_KEYBOARD_MODELS_H_
+#endif  // FLUTTER_SHELL_PLATFORM_COMMON_KEYBOARD_MODELS_H_
