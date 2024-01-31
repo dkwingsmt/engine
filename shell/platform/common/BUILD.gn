@@ -40,12 +40,14 @@ copy("publish_headers") {
 
 source_set("common_cpp_input") {
   public = [
+    "keyboard_models.h",
     "text_editing_delta.h",
     "text_input_model.h",
     "text_range.h",
   ]
 
   sources = [
+    "keyboard_models.cc",
     "text_editing_delta.cc",
     "text_input_model.cc",
   ]
@@ -54,7 +56,10 @@ source_set("common_cpp_input") {
 
   public_configs = [ "//flutter:config" ]
 
-  deps = [ "//flutter/fml:fml" ]
+  deps = [
+    "//flutter/fml:fml",
+    "//flutter/shell/platform/embedder:embedder_as_internal_library",
+  ]
 }
 
 source_set("common_cpp_enums") {

@@ -6561,6 +6561,8 @@ ORIGIN: ../../../flutter/shell/platform/common/json_message_codec.cc + ../../../
 ORIGIN: ../../../flutter/shell/platform/common/json_message_codec.h + ../../../flutter/LICENSE
 ORIGIN: ../../../flutter/shell/platform/common/json_method_codec.cc + ../../../flutter/LICENSE
 ORIGIN: ../../../flutter/shell/platform/common/json_method_codec.h + ../../../flutter/LICENSE
+ORIGIN: ../../../flutter/shell/platform/common/keyboard_models.cc + ../../../flutter/LICENSE
+ORIGIN: ../../../flutter/shell/platform/common/keyboard_models.h + ../../../flutter/LICENSE
 ORIGIN: ../../../flutter/shell/platform/common/path_utils.cc + ../../../flutter/LICENSE
 ORIGIN: ../../../flutter/shell/platform/common/path_utils.h + ../../../flutter/LICENSE
 ORIGIN: ../../../flutter/shell/platform/common/platform_provided_menu.h + ../../../flutter/LICENSE
@@ -9426,6 +9428,8 @@ FILE: ../../../flutter/shell/platform/common/json_message_codec.cc
 FILE: ../../../flutter/shell/platform/common/json_message_codec.h
 FILE: ../../../flutter/shell/platform/common/json_method_codec.cc
 FILE: ../../../flutter/shell/platform/common/json_method_codec.h
+FILE: ../../../flutter/shell/platform/common/keyboard_models.cc
+FILE: ../../../flutter/shell/platform/common/keyboard_models.h
 FILE: ../../../flutter/shell/platform/common/path_utils.cc
 FILE: ../../../flutter/shell/platform/common/path_utils.h
 FILE: ../../../flutter/shell/platform/common/platform_provided_menu.h
