@@ -133,10 +133,10 @@ typedef enum {
   kStateLogicReversed,
 } StateLogicInferrence;
 
-// Fill in #logical_key_to_lock_bit by associating a logical key with
+// Fill in #_logical_key_to_lock_bit by associating a logical key with
 // its corresponding modifier bit.
 //
-// This is used as the body of a loop over #lock_bit_to_checked_keys.
+// This is used as the body of a loop over #_lock_bit_to_checked_keys.
 static void initialize_logical_key_to_lock_bit_loop_body(gpointer lock_bit,
                                                          gpointer value,
                                                          gpointer user_data) {
@@ -267,7 +267,7 @@ static int find_stage_by_others_event(int stage_by_record, bool is_state_on) {
 // Find if a given physical key is the primary physical of one of the known
 // modifier keys.
 //
-// This is used as the body of a loop over #modifier_bit_to_checked_keys.
+// This is used as the body of a loop over #_modifier_bit_to_checked_keys.
 static void is_known_modifier_physical_key_loop_body(gpointer key,
                                                      gpointer value,
                                                      gpointer user_data) {
@@ -284,7 +284,7 @@ static void is_known_modifier_physical_key_loop_body(gpointer key,
 // Return the primary physical key of a known modifier key which matches the
 // given logical key.
 //
-// This is used as the body of a loop over #modifier_bit_to_checked_keys.
+// This is used as the body of a loop over #_modifier_bit_to_checked_keys.
 static void find_physical_from_logical_loop_body(gpointer key,
                                                  gpointer value,
                                                  gpointer user_data) {
@@ -300,7 +300,7 @@ static void find_physical_from_logical_loop_body(gpointer key,
 }
 
 static uint64_t corrected_modifier_physical_key(
-    GHashTable* modifier_bit_to_checked_keys,
+    GHashTable* _modifier_bit_to_checked_keys,
     uint64_t physical_key_from_event,
     uint64_t logical_key) {
   ModifierLogicalToPhysicalContext logical_to_physical_context;
@@ -312,14 +312,14 @@ static uint64_t corrected_modifier_physical_key(
   logical_to_physical_context.corrected_physical_key = physical_key_from_event;
 
   // Check if the physical key is one of the known modifier physical key.
-  g_hash_table_foreach(modifier_bit_to_checked_keys,
+  g_hash_table_foreach(_modifier_bit_to_checked_keys,
                        is_known_modifier_physical_key_loop_body,
                        &logical_to_physical_context);
 
   // If the physical key matches a known modifier key, find the modifier
   // physical key from the logical key.
   if (logical_to_physical_context.known_modifier_physical_key) {
-    g_hash_table_foreach(modifier_bit_to_checked_keys,
+    g_hash_table_foreach(_modifier_bit_to_checked_keys,
                          find_physical_from_logical_loop_body,
                          &logical_to_physical_context);
   }
@@ -333,31 +333,31 @@ class EmbedderResponder {
                     void* send_key_event_user_data)
       : _send_key_event(send_key_event),
         _send_key_event_user_data(send_key_event_user_data) {
-    pressing_records = g_hash_table_new(g_direct_hash, g_direct_equal);
-    mapping_records = g_hash_table_new(g_direct_hash, g_direct_equal);
-    lock_records = 0;
-    caps_lock_state_logic_inferrence = kStateLogicUndecided;
+    _pressing_records = g_hash_table_new(g_direct_hash, g_direct_equal);
+    _mapping_records = g_hash_table_new(g_direct_hash, g_direct_equal);
+    _lock_records = 0;
+    _caps_lock_state_logic_inferrence = kStateLogicUndecided;
 
-    modifier_bit_to_checked_keys =
+    _modifier_bit_to_checked_keys =
         g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
-    initialize_modifier_bit_to_checked_keys(modifier_bit_to_checked_keys);
+    initialize_modifier_bit_to_checked_keys(_modifier_bit_to_checked_keys);
 
-    lock_bit_to_checked_keys =
+    _lock_bit_to_checked_keys =
         g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
-    initialize_lock_bit_to_checked_keys(lock_bit_to_checked_keys);
+    initialize_lock_bit_to_checked_keys(_lock_bit_to_checked_keys);
 
-    logical_key_to_lock_bit = g_hash_table_new(g_direct_hash, g_direct_equal);
-    g_hash_table_foreach(lock_bit_to_checked_keys,
+    _logical_key_to_lock_bit = g_hash_table_new(g_direct_hash, g_direct_equal);
+    g_hash_table_foreach(_lock_bit_to_checked_keys,
                          initialize_logical_key_to_lock_bit_loop_body,
-                         logical_key_to_lock_bit);
+                         _logical_key_to_lock_bit);
   }
 
   ~EmbedderResponder() {
-    g_clear_pointer(&pressing_records, g_hash_table_unref);
-    g_clear_pointer(&mapping_records, g_hash_table_unref);
-    g_clear_pointer(&modifier_bit_to_checked_keys, g_hash_table_unref);
-    g_clear_pointer(&lock_bit_to_checked_keys, g_hash_table_unref);
-    g_clear_pointer(&logical_key_to_lock_bit, g_hash_table_unref);
+    g_clear_pointer(&_pressing_records, g_hash_table_unref);
+    g_clear_pointer(&_mapping_records, g_hash_table_unref);
+    g_clear_pointer(&_modifier_bit_to_checked_keys, g_hash_table_unref);
+    g_clear_pointer(&_lock_bit_to_checked_keys, g_hash_table_unref);
+    g_clear_pointer(&_logical_key_to_lock_bit, g_hash_table_unref);
   }
 
   void SyncModifiersIfNeeded(guint state, double event_time) {
@@ -369,7 +369,7 @@ class EmbedderResponder {
     sync_state_context.timestamp = timestamp;
 
     // Update pressing states.
-    g_hash_table_foreach(modifier_bit_to_checked_keys,
+    g_hash_table_foreach(_modifier_bit_to_checked_keys,
                          synchronize_pressed_states_loop_body,
                          &sync_state_context);
   }
@@ -378,19 +378,19 @@ class EmbedderResponder {
                    uint64_t specified_logical_key,
                    FlKeyResponderAsyncCallback callback,
                    gpointer user_data) {
-    sent_any_events = false;
+    _sent_any_events = false;
     HandleEventImpl(event, specified_logical_key, callback, user_data);
-    if (!sent_any_events) {
+    if (!_sent_any_events) {
       _send_key_event(&kEmptyEvent, nullptr, nullptr,
                       _send_key_event_user_data);
     }
   }
 
-  GHashTable* GetPressedState() { return pressing_records; }
+  GHashTable* GetPressedState() { return _pressing_records; }
 
  private:
-  void update_mapping_record(uint64_t physical_key, uint64_t logical_key) {
-    g_hash_table_insert(mapping_records, uint64_to_gpointer(logical_key),
+  void UpdateMappingRecord(uint64_t physical_key, uint64_t logical_key) {
+    g_hash_table_insert(_mapping_records, uint64_to_gpointer(logical_key),
                         uint64_to_gpointer(physical_key));
   }
 
@@ -406,7 +406,7 @@ class EmbedderResponder {
                                      : event_to_logical_key(event);
     const uint64_t physical_key_from_event = event_to_physical_key(event);
     const uint64_t physical_key = corrected_modifier_physical_key(
-        modifier_bit_to_checked_keys, physical_key_from_event, logical_key);
+        _modifier_bit_to_checked_keys, physical_key_from_event, logical_key);
     const double timestamp = event_to_timestamp(event);
     const bool is_down_event = event->is_press;
 
@@ -418,18 +418,18 @@ class EmbedderResponder {
     sync_state_context.event_logical_key = logical_key;
 
     // Update lock mode states
-    g_hash_table_foreach(lock_bit_to_checked_keys,
+    g_hash_table_foreach(_lock_bit_to_checked_keys,
                          synchronize_lock_states_loop_body,
                          &sync_state_context);
 
     // Update pressing states
-    g_hash_table_foreach(modifier_bit_to_checked_keys,
+    g_hash_table_foreach(_modifier_bit_to_checked_keys,
                          synchronize_pressed_states_loop_body,
                          &sync_state_context);
 
     // Construct the real event
     const uint64_t last_logical_record =
-        lookup_hash_table(pressing_records, physical_key);
+        lookup_hash_table(_pressing_records, physical_key);
 
     FlutterKeyEvent out_event;
     out_event.struct_size = sizeof(out_event);
@@ -464,15 +464,15 @@ class EmbedderResponder {
     }
 
     if (out_event.type != kFlutterKeyEventTypeRepeat) {
-      update_pressing_state(physical_key, is_down_event ? logical_key : 0);
+      UpdatePressingState(physical_key, is_down_event ? logical_key : 0);
     }
-    possibly_update_lock_bit(logical_key, is_down_event);
+    PossiblyUpdateLockBit(logical_key, is_down_event);
     if (is_down_event) {
-      update_mapping_record(physical_key, logical_key);
+      UpdateMappingRecord(physical_key, logical_key);
     }
     FlKeyEmbedderUserData* response_data =
         fl_key_embedder_user_data_new(callback, user_data);
-    sent_any_events = true;
+    _sent_any_events = true;
     _send_key_event(&out_event, handle_response, response_data,
                     _send_key_event_user_data);
   }
@@ -488,14 +488,14 @@ class EmbedderResponder {
   // To detect whether the current platform behaves normally or reversed, this
   // function is called on the first down event of CapsLock before calculating
   // stages.  This function then store the inferred mode as
-  // self->caps_lock_state_logic_inferrence.
+  // self->_caps_lock_state_logic_inferrence.
   //
   // This does not help if the same app session is used alternatively between a
   // reversed platform and a normal platform.  But this is the best we can do.
-  void update_caps_lock_state_logic_inferrence(bool is_down_event,
-                                               bool enabled_by_state,
-                                               int stage_by_record) {
-    if (caps_lock_state_logic_inferrence != kStateLogicUndecided) {
+  void UpdateCapsLockStateLogicInferrence(bool is_down_event,
+                                          bool enabled_by_state,
+                                          int stage_by_record) {
+    if (_caps_lock_state_logic_inferrence != kStateLogicUndecided) {
       return;
     }
     if (!is_down_event) {
@@ -505,9 +505,9 @@ class EmbedderResponder {
         stage_by_record, is_down_event, enabled_by_state, false);
     if ((stage_by_event == 0 && stage_by_record == 2) ||
         (stage_by_event == 2 && stage_by_record == 0)) {
-      caps_lock_state_logic_inferrence = kStateLogicReversed;
+      _caps_lock_state_logic_inferrence = kStateLogicReversed;
     } else {
-      caps_lock_state_logic_inferrence = kStateLogicNormal;
+      _caps_lock_state_logic_inferrence = kStateLogicNormal;
     }
   }
 
@@ -515,14 +515,14 @@ class EmbedderResponder {
   //
   // If `is_down` is false, this function is a no-op.  Otherwise, this function
   // finds the lock bit corresponding to `physical_key`, and flips its bit.
-  void possibly_update_lock_bit(uint64_t logical_key, bool is_down) {
+  void PossiblyUpdateLockBit(uint64_t logical_key, bool is_down) {
     if (!is_down) {
       return;
     }
     const guint mode_bit = GPOINTER_TO_UINT(g_hash_table_lookup(
-        logical_key_to_lock_bit, uint64_to_gpointer(logical_key)));
+        _logical_key_to_lock_bit, uint64_to_gpointer(logical_key)));
     if (mode_bit != 0) {
-      lock_records ^= mode_bit;
+      _lock_records ^= mode_bit;
     }
   }
 
@@ -532,22 +532,22 @@ class EmbedderResponder {
   // the record will be set as "pressed" with this logical key.  This function
   // asserts that the key is pressed if the caller asked to release, and vice
   // versa.
-  void update_pressing_state(uint64_t physical_key, uint64_t logical_key) {
+  void UpdatePressingState(uint64_t physical_key, uint64_t logical_key) {
     if (logical_key != 0) {
-      g_return_if_fail(lookup_hash_table(pressing_records, physical_key) == 0);
-      g_hash_table_insert(pressing_records, uint64_to_gpointer(physical_key),
+      g_return_if_fail(lookup_hash_table(_pressing_records, physical_key) == 0);
+      g_hash_table_insert(_pressing_records, uint64_to_gpointer(physical_key),
                           uint64_to_gpointer(logical_key));
     } else {
-      g_return_if_fail(lookup_hash_table(pressing_records, physical_key) != 0);
-      g_hash_table_remove(pressing_records, uint64_to_gpointer(physical_key));
+      g_return_if_fail(lookup_hash_table(_pressing_records, physical_key) != 0);
+      g_hash_table_remove(_pressing_records, uint64_to_gpointer(physical_key));
     }
   }
 
   // Sends a synthesized event to the framework with no demand for callback.
-  void synthesize_simple_event(FlutterKeyEventType type,
-                               uint64_t physical,
-                               uint64_t logical,
-                               double timestamp) {
+  void SynthesizeSimpleEvent(FlutterKeyEventType type,
+                             uint64_t physical,
+                             uint64_t logical,
+                             double timestamp) {
     FlutterKeyEvent out_event;
     out_event.struct_size = sizeof(out_event);
     out_event.timestamp = timestamp;
@@ -556,16 +556,16 @@ class EmbedderResponder {
     out_event.logical = logical;
     out_event.character = nullptr;
     out_event.synthesized = true;
-    sent_any_events = true;
+    _sent_any_events = true;
     _send_key_event(&out_event, nullptr, nullptr, _send_key_event_user_data);
   }
 
   // Synchronizes the lock state of a key to its state from the event by
   // synthesizing events.
   //
-  // This is used as the body of a loop over #lock_bit_to_checked_keys.
+  // This is used as the body of a loop over #_lock_bit_to_checked_keys.
   //
-  // This function might modify #caps_lock_state_logic_inferrence.
+  // This function might modify #_caps_lock_state_logic_inferrence.
   static void synchronize_lock_states_loop_body(gpointer key,
                                                 gpointer value,
                                                 gpointer user_data) {
@@ -585,7 +585,7 @@ class EmbedderResponder {
       FlKeyEmbedderCheckedKey* checked_key) {
     const uint64_t logical_key = checked_key->primary_logical_key;
     const uint64_t recorded_physical_key =
-        lookup_hash_table(mapping_records, logical_key);
+        lookup_hash_table(_mapping_records, logical_key);
     // The physical key is derived from past mapping record if possible.
     //
     // If the event to be synthesized is a key up event, then there must have
@@ -603,7 +603,7 @@ class EmbedderResponder {
     // between every 2 stages (SelfType and SelfState), and the event of other
     // keys at each stage (OthersState). On certain platforms SelfState uses a
     // reversed rule for certain keys (SelfState(rvsd), as documented in
-    // #update_caps_lock_state_logic_inferrence).
+    // #UpdateCapsLockStateLogicInferrence).
     //
     //               #    [0]         [1]          [2]           [3]
     //     TruePressed: Released    Pressed      Released      Pressed
@@ -619,25 +619,25 @@ class EmbedderResponder {
     const uint64_t pressed_logical_key =
         recorded_physical_key == 0
             ? 0
-            : lookup_hash_table(pressing_records, recorded_physical_key);
+            : lookup_hash_table(_pressing_records, recorded_physical_key);
 
     g_return_if_fail(pressed_logical_key == 0 ||
                      pressed_logical_key == logical_key);
     const int stage_by_record = find_stage_by_record(
-        pressed_logical_key != 0, (lock_records & modifier_bit) != 0);
+        pressed_logical_key != 0, (_lock_records & modifier_bit) != 0);
 
     const bool enabled_by_state = (context->state & modifier_bit) != 0;
     const bool this_key_is_event_key =
         logical_key == context->event_logical_key;
     if (this_key_is_event_key && checked_key->is_caps_lock) {
-      update_caps_lock_state_logic_inferrence(
-          context->is_down, enabled_by_state, stage_by_record);
-      g_return_if_fail(caps_lock_state_logic_inferrence !=
+      UpdateCapsLockStateLogicInferrence(context->is_down, enabled_by_state,
+                                         stage_by_record);
+      g_return_if_fail(_caps_lock_state_logic_inferrence !=
                        kStateLogicUndecided);
     }
     const bool reverse_state_logic =
         checked_key->is_caps_lock &&
-        caps_lock_state_logic_inferrence == kStateLogicReversed;
+        _caps_lock_state_logic_inferrence == kStateLogicReversed;
     const int stage_by_event =
         this_key_is_event_key
             ? find_stage_by_self_event(stage_by_record, context->is_down,
@@ -665,21 +665,21 @@ class EmbedderResponder {
       const bool is_down_event =
           standard_current_stage == 0 || standard_current_stage == 2;
       if (is_down_event && recorded_physical_key == 0) {
-        update_mapping_record(physical_key, logical_key);
+        UpdateMappingRecord(physical_key, logical_key);
       }
       FlutterKeyEventType type =
           is_down_event ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp;
-      update_pressing_state(physical_key, is_down_event ? logical_key : 0);
-      possibly_update_lock_bit(logical_key, is_down_event);
-      synthesize_simple_event(type, physical_key, logical_key,
-                              context->timestamp);
+      UpdatePressingState(physical_key, is_down_event ? logical_key : 0);
+      PossiblyUpdateLockBit(logical_key, is_down_event);
+      SynthesizeSimpleEvent(type, physical_key, logical_key,
+                            context->timestamp);
     }
   }
 
   // Synchronizes the pressing state of a key to its state from the event by
   // synthesizing events.
   //
-  // This is used as the body of a loop over #modifier_bit_to_checked_keys.
+  // This is used as the body of a loop over #_modifier_bit_to_checked_keys.
   static void synchronize_pressed_states_loop_body(gpointer key,
                                                    gpointer value,
                                                    gpointer user_data) {
@@ -705,7 +705,7 @@ class EmbedderResponder {
     // The hard part is that, if we want to synthesize a down event, we don't
     // know which physical key to use. Here we assume the keyboard layout do not
     // change frequently and use the last physical-logical relationship,
-    // recorded in #mapping_records.
+    // recorded in #_mapping_records.
     const uint64_t logical_keys[] = {
         checked_key->primary_logical_key,
         checked_key->secondary_logical_key,
@@ -719,18 +719,16 @@ class EmbedderResponder {
     // Traverse each logical key of this modifier bit for 2 purposes:
     //
     //  1. Perform the synthesization of release events: If the modifier bit is
-    //  0
-    //     and the key is pressed, synthesize a release event.
+    //     0 and the key is pressed, synthesize a release event.
     //  2. Prepare for the synthesization of press events: If the modifier bit
-    //  is
-    //     1, and no keys are pressed (discovered here), synthesize a press
+    //     is 1, and no keys are pressed (discovered here), synthesize a press
     //     event later.
     for (guint logical_key_idx = 0; logical_key_idx < length;
          logical_key_idx++) {
       const uint64_t logical_key = logical_keys[logical_key_idx];
       g_return_if_fail(logical_key != 0);
       const uint64_t pressing_physical_key =
-          reverse_lookup_hash_table(pressing_records, logical_key);
+          reverse_lookup_hash_table(_pressing_records, logical_key);
       const bool this_key_pressed_before_event = pressing_physical_key != 0;
 
       any_pressed_by_record =
@@ -738,16 +736,16 @@ class EmbedderResponder {
 
       if (this_key_pressed_before_event && !any_pressed_by_state) {
         const uint64_t recorded_physical_key =
-            lookup_hash_table(mapping_records, logical_key);
+            lookup_hash_table(_mapping_records, logical_key);
         // Since this key has been pressed before, there must have been a
         // recorded physical key.
         g_return_if_fail(recorded_physical_key != 0);
         // In rare cases #recorded_logical_key is different from #logical_key.
         const uint64_t recorded_logical_key =
-            lookup_hash_table(pressing_records, recorded_physical_key);
-        synthesize_simple_event(kFlutterKeyEventTypeUp, recorded_physical_key,
-                                recorded_logical_key, context->timestamp);
-        update_pressing_state(recorded_physical_key, 0);
+            lookup_hash_table(_pressing_records, recorded_physical_key);
+        SynthesizeSimpleEvent(kFlutterKeyEventTypeUp, recorded_physical_key,
+                              recorded_logical_key, context->timestamp);
+        UpdatePressingState(recorded_physical_key, 0);
       }
     }
     // If the modifier should be pressed, synthesize a down event for its
@@ -755,7 +753,7 @@ class EmbedderResponder {
     if (any_pressed_by_state && !any_pressed_by_record) {
       const uint64_t logical_key = checked_key->primary_logical_key;
       const uint64_t recorded_physical_key =
-          lookup_hash_table(mapping_records, logical_key);
+          lookup_hash_table(_mapping_records, logical_key);
       // The physical key is derived from past mapping record if possible.
       //
       // The event to be synthesized is a key down event. There might not have
@@ -765,11 +763,11 @@ class EmbedderResponder {
                                         ? recorded_physical_key
                                         : checked_key->primary_physical_key;
       if (recorded_physical_key == 0) {
-        update_mapping_record(physical_key, logical_key);
+        UpdateMappingRecord(physical_key, logical_key);
       }
-      synthesize_simple_event(kFlutterKeyEventTypeDown, physical_key,
-                              logical_key, context->timestamp);
-      update_pressing_state(physical_key, logical_key);
+      SynthesizeSimpleEvent(kFlutterKeyEventTypeDown, physical_key, logical_key,
+                            context->timestamp);
+      UpdatePressingState(physical_key, logical_key);
     }
   }
 
@@ -781,12 +779,12 @@ class EmbedderResponder {
   // It is a map from Flutter physical key to Flutter logical key.  Both keys
   // and values are directly stored uint64s.  This table is freed by the
   // responder.
-  GHashTable* pressing_records;
+  GHashTable* _pressing_records;
 
   // Internal record for states of whether a lock mode is enabled.
   //
   // It is a bit mask composed of GTK mode bits.
-  guint lock_records;
+  guint _lock_records;
 
   // Internal record for the last observed key mapping.
   //
@@ -795,17 +793,17 @@ class EmbedderResponder {
   //
   // It is a map from Flutter logical key to physical key.  Both keys and
   // values are directly stored uint64s.  This table is freed by the responder.
-  GHashTable* mapping_records;
+  GHashTable* _mapping_records;
 
   // The inferred logic type indicating whether the CapsLock state logic is
   // reversed on this platform.
   //
-  // For more information, see #update_caps_lock_state_logic_inferrence.
-  StateLogicInferrence caps_lock_state_logic_inferrence;
+  // For more information, see #UpdateCapsLockStateLogicInferrence.
+  StateLogicInferrence _caps_lock_state_logic_inferrence;
 
   // Record if any events has been sent during a
   // |fl_key_embedder_responder_handle_event| call.
-  bool sent_any_events;
+  bool _sent_any_events;
 
   // A static map from GTK modifier bits to #FlKeyEmbedderCheckedKey to
   // configure the modifier keys that needs to be tracked and kept synchronous
@@ -813,7 +811,7 @@ class EmbedderResponder {
   //
   // The keys are directly stored guints.  The values must be freed with g_free.
   // This table is freed by the responder.
-  GHashTable* modifier_bit_to_checked_keys;
+  GHashTable* _modifier_bit_to_checked_keys;
 
   // A static map from GTK modifier bits to #FlKeyEmbedderCheckedKey to
   // configure the lock mode bits that needs to be tracked and kept synchronous
@@ -821,13 +819,13 @@ class EmbedderResponder {
   //
   // The keys are directly stored guints.  The values must be freed with g_free.
   // This table is freed by the responder.
-  GHashTable* lock_bit_to_checked_keys;
+  GHashTable* _lock_bit_to_checked_keys;
 
-  // A static map generated by reverse mapping lock_bit_to_checked_keys.
+  // A static map generated by reverse mapping _lock_bit_to_checked_keys.
   //
   // It is a map from primary physical keys to lock bits.  Both keys and values
   // are directly stored uint64s.  This table is freed by the responder.
-  GHashTable* logical_key_to_lock_bit;
+  GHashTable* _logical_key_to_lock_bit;
 };
 
 }  // namespace
