@@ -7,6 +7,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <optional>
 
 #include "flutter/fml/macros.h"
 #include "flutter/shell/platform/embedder/embedder.h"
