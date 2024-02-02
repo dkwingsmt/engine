@@ -411,52 +411,56 @@ std::map<uint64_t, uint64_t> gtk_keyval_to_logical_key_map = {
     {0x1008ffa7, 0x00200000000},  // Suspend
 };
 
-void initialize_modifier_bit_to_checked_keys(GHashTable* table) {
-  FlKeyEmbedderCheckedKey* data;
+CheckedKeysMap initialize_modifier_bit_to_checked_keys() {
+  CheckedKeysMap table;
 
-  data = g_new(FlKeyEmbedderCheckedKey, 1);
-  g_hash_table_insert(table, GUINT_TO_POINTER(GDK_SHIFT_MASK), data);
-  data->is_caps_lock = false;
-  data->primary_physical_key = 0x0000700e1;     // shiftLeft
-  data->primary_logical_key = 0x00200000102;    // shiftLeft
-  data->secondary_logical_key = 0x00200000103;  // shiftRight
+  table[GDK_SHIFT_MASK] = FlKeyEmbedderCheckedKey{
+      .is_caps_lock = false,
+      .primary_physical_key = 0x0000700e1,     // shiftLeft
+      .primary_logical_key = 0x00200000102,    // shiftLeft
+      .secondary_logical_key = 0x00200000103,  // shiftRight
+  };
 
-  data = g_new(FlKeyEmbedderCheckedKey, 1);
-  g_hash_table_insert(table, GUINT_TO_POINTER(GDK_CONTROL_MASK), data);
-  data->is_caps_lock = false;
-  data->primary_physical_key = 0x0000700e0;     // controlLeft
-  data->primary_logical_key = 0x00200000100;    // controlLeft
-  data->secondary_logical_key = 0x00200000101;  // controlRight
+  table[GDK_CONTROL_MASK] = FlKeyEmbedderCheckedKey{
+      .is_caps_lock = false,
+      .primary_physical_key = 0x0000700e0,     // controlLeft
+      .primary_logical_key = 0x00200000100,    // controlLeft
+      .secondary_logical_key = 0x00200000101,  // controlRight
+  };
 
-  data = g_new(FlKeyEmbedderCheckedKey, 1);
-  g_hash_table_insert(table, GUINT_TO_POINTER(GDK_MOD1_MASK), data);
-  data->is_caps_lock = false;
-  data->primary_physical_key = 0x0000700e2;     // altLeft
-  data->primary_logical_key = 0x00200000104;    // altLeft
-  data->secondary_logical_key = 0x00200000105;  // altRight
+  table[GDK_MOD1_MASK] = FlKeyEmbedderCheckedKey{
+      .is_caps_lock = false,
+      .primary_physical_key = 0x0000700e2,     // altLeft
+      .primary_logical_key = 0x00200000104,    // altLeft
+      .secondary_logical_key = 0x00200000105,  // altRight
+  };
 
-  data = g_new(FlKeyEmbedderCheckedKey, 1);
-  g_hash_table_insert(table, GUINT_TO_POINTER(GDK_META_MASK), data);
-  data->is_caps_lock = false;
-  data->primary_physical_key = 0x0000700e3;     // metaLeft
-  data->primary_logical_key = 0x00200000106;    // metaLeft
-  data->secondary_logical_key = 0x00200000107;  // metaRight
+  table[GDK_META_MASK] = FlKeyEmbedderCheckedKey{
+      .is_caps_lock = false,
+      .primary_physical_key = 0x0000700e3,     // metaLeft
+      .primary_logical_key = 0x00200000106,    // metaLeft
+      .secondary_logical_key = 0x00200000107,  // metaRight
+  };
+
+  return table;
 }
 
-void initialize_lock_bit_to_checked_keys(GHashTable* table) {
-  FlKeyEmbedderCheckedKey* data;
+CheckedKeysMap initialize_lock_bit_to_checked_keys() {
+  CheckedKeysMap table;
 
-  data = g_new(FlKeyEmbedderCheckedKey, 1);
-  g_hash_table_insert(table, GUINT_TO_POINTER(GDK_LOCK_MASK), data);
-  data->is_caps_lock = true;
-  data->primary_physical_key = 0x000070039;   // capsLock
-  data->primary_logical_key = 0x00100000104;  // capsLock
+  table[GDK_LOCK_MASK] = FlKeyEmbedderCheckedKey{
+      .is_caps_lock = true,
+      .primary_physical_key = 0x000070039,   // capsLock
+      .primary_logical_key = 0x00100000104,  // capsLock
+  };
 
-  data = g_new(FlKeyEmbedderCheckedKey, 1);
-  g_hash_table_insert(table, GUINT_TO_POINTER(GDK_MOD2_MASK), data);
-  data->is_caps_lock = false;
-  data->primary_physical_key = 0x000070053;   // numLock
-  data->primary_logical_key = 0x0010000010a;  // numLock
+  table[GDK_MOD2_MASK] = FlKeyEmbedderCheckedKey{
+      .is_caps_lock = false,
+      .primary_physical_key = 0x000070053,   // numLock
+      .primary_logical_key = 0x0010000010a,  // numLock
+  };
+
+  return table;
 }
 
 const std::vector<LayoutGoal> layout_goals = {

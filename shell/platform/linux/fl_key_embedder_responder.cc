@@ -133,19 +133,15 @@ typedef enum {
   kStateLogicReversed,
 } StateLogicInferrence;
 
-// Fill in #_logical_key_to_lock_bit by associating a logical key with
-// its corresponding modifier bit.
-//
-// This is used as the body of a loop over #_lock_bit_to_checked_keys.
-static void initialize_logical_key_to_lock_bit_loop_body(gpointer lock_bit,
-                                                         gpointer value,
-                                                         gpointer user_data) {
-  FlKeyEmbedderCheckedKey* checked_key =
-      reinterpret_cast<FlKeyEmbedderCheckedKey*>(value);
-  GHashTable* table = reinterpret_cast<GHashTable*>(user_data);
-  g_hash_table_insert(table,
-                      uint64_to_gpointer(checked_key->primary_logical_key),
-                      GUINT_TO_POINTER(lock_bit));
+// Revert-map a logical_key_to_lock_bit table to a logical_key_to_lock_bit
+// table.
+static std::map<uint64_t, uint64_t> initialize_logical_key_to_lock_bit(
+    const CheckedKeysMap& lock_bit_to_checked_keys) {
+  std::map<uint64_t, uint64_t> logical_to_lock_bit;
+  for (const auto& [lock_bit, checked_key] : lock_bit_to_checked_keys) {
+    logical_to_lock_bit[checked_key.primary_logical_key] = lock_bit;
+  }
+  return logical_to_lock_bit;
 }
 
 static uint64_t apply_id_plane(uint64_t logical_id, uint64_t plane) {
@@ -214,15 +210,6 @@ typedef struct {
   double timestamp;
 } SyncStateLoopContext;
 
-// Context variables for the foreach call used to find the physical key from
-// a modifier logical key.
-typedef struct {
-  bool known_modifier_physical_key;
-  uint64_t logical_key;
-  uint64_t physical_key_from_event;
-  uint64_t corrected_physical_key;
-} ModifierLogicalToPhysicalContext;
-
 // Find the stage # by the current record, which should be the recorded stage
 // before the event.
 static int find_stage_by_record(bool is_down, bool is_enabled) {
@@ -264,67 +251,32 @@ static int find_stage_by_others_event(int stage_by_record, bool is_state_on) {
   return stage_by_record;
 }
 
-// Find if a given physical key is the primary physical of one of the known
-// modifier keys.
-//
-// This is used as the body of a loop over #_modifier_bit_to_checked_keys.
-static void is_known_modifier_physical_key_loop_body(gpointer key,
-                                                     gpointer value,
-                                                     gpointer user_data) {
-  ModifierLogicalToPhysicalContext* context =
-      reinterpret_cast<ModifierLogicalToPhysicalContext*>(user_data);
-  FlKeyEmbedderCheckedKey* checked_key =
-      reinterpret_cast<FlKeyEmbedderCheckedKey*>(value);
-
-  if (checked_key->primary_physical_key == context->physical_key_from_event) {
-    context->known_modifier_physical_key = true;
-  }
-}
-
-// Return the primary physical key of a known modifier key which matches the
-// given logical key.
-//
-// This is used as the body of a loop over #_modifier_bit_to_checked_keys.
-static void find_physical_from_logical_loop_body(gpointer key,
-                                                 gpointer value,
-                                                 gpointer user_data) {
-  ModifierLogicalToPhysicalContext* context =
-      reinterpret_cast<ModifierLogicalToPhysicalContext*>(user_data);
-  FlKeyEmbedderCheckedKey* checked_key =
-      reinterpret_cast<FlKeyEmbedderCheckedKey*>(value);
-
-  if (checked_key->primary_logical_key == context->logical_key ||
-      checked_key->secondary_logical_key == context->logical_key) {
-    context->corrected_physical_key = checked_key->primary_physical_key;
-  }
-}
-
 static uint64_t corrected_modifier_physical_key(
-    GHashTable* _modifier_bit_to_checked_keys,
+    const CheckedKeysMap& modifier_bit_to_checked_keys,
     uint64_t physical_key_from_event,
     uint64_t logical_key) {
-  ModifierLogicalToPhysicalContext logical_to_physical_context;
-  logical_to_physical_context.known_modifier_physical_key = false;
-  logical_to_physical_context.physical_key_from_event = physical_key_from_event;
-  logical_to_physical_context.logical_key = logical_key;
-  // If no match is found, defaults to the physical key retrieved from the
-  // event.
-  logical_to_physical_context.corrected_physical_key = physical_key_from_event;
-
   // Check if the physical key is one of the known modifier physical key.
-  g_hash_table_foreach(_modifier_bit_to_checked_keys,
-                       is_known_modifier_physical_key_loop_body,
-                       &logical_to_physical_context);
-
-  // If the physical key matches a known modifier key, find the modifier
-  // physical key from the logical key.
-  if (logical_to_physical_context.known_modifier_physical_key) {
-    g_hash_table_foreach(_modifier_bit_to_checked_keys,
-                         find_physical_from_logical_loop_body,
-                         &logical_to_physical_context);
+  bool known_modifier_physical_key = false;
+  for (auto& [modifier_bit, checked_key] : modifier_bit_to_checked_keys) {
+    if (checked_key.primary_physical_key == physical_key_from_event) {
+      known_modifier_physical_key = true;
+    }
   }
 
-  return logical_to_physical_context.corrected_physical_key;
+  uint64_t corrected_physical_key = physical_key_from_event;
+  // If the physical key matches a known modifier key, find the modifier
+  // physical key from the logical key.
+  if (known_modifier_physical_key) {
+    for (auto& [modifier_bit, checked_key] : modifier_bit_to_checked_keys) {
+      if (checked_key.primary_logical_key == logical_key ||
+          checked_key.secondary_logical_key == logical_key) {
+        corrected_physical_key = checked_key.primary_physical_key;
+      }
+    }
+  }
+
+  return corrected_physical_key;
+  ;
 }
 
 class EmbedderResponder {
@@ -332,32 +284,21 @@ class EmbedderResponder {
   EmbedderResponder(EmbedderSendKeyEvent send_key_event,
                     void* send_key_event_user_data)
       : _send_key_event(send_key_event),
-        _send_key_event_user_data(send_key_event_user_data) {
+        _send_key_event_user_data(send_key_event_user_data),
+        _modifier_bit_to_checked_keys(
+            initialize_modifier_bit_to_checked_keys()),
+        _lock_bit_to_checked_keys(initialize_lock_bit_to_checked_keys()),
+        _logical_key_to_lock_bit(
+            initialize_logical_key_to_lock_bit(_lock_bit_to_checked_keys)) {
     _pressing_records = g_hash_table_new(g_direct_hash, g_direct_equal);
     _mapping_records = g_hash_table_new(g_direct_hash, g_direct_equal);
     _lock_records = 0;
     _caps_lock_state_logic_inferrence = kStateLogicUndecided;
-
-    _modifier_bit_to_checked_keys =
-        g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
-    initialize_modifier_bit_to_checked_keys(_modifier_bit_to_checked_keys);
-
-    _lock_bit_to_checked_keys =
-        g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
-    initialize_lock_bit_to_checked_keys(_lock_bit_to_checked_keys);
-
-    _logical_key_to_lock_bit = g_hash_table_new(g_direct_hash, g_direct_equal);
-    g_hash_table_foreach(_lock_bit_to_checked_keys,
-                         initialize_logical_key_to_lock_bit_loop_body,
-                         _logical_key_to_lock_bit);
   }
 
   ~EmbedderResponder() {
     g_clear_pointer(&_pressing_records, g_hash_table_unref);
     g_clear_pointer(&_mapping_records, g_hash_table_unref);
-    g_clear_pointer(&_modifier_bit_to_checked_keys, g_hash_table_unref);
-    g_clear_pointer(&_lock_bit_to_checked_keys, g_hash_table_unref);
-    g_clear_pointer(&_logical_key_to_lock_bit, g_hash_table_unref);
   }
 
   void SyncModifiersIfNeeded(guint state, double event_time) {
@@ -369,9 +310,9 @@ class EmbedderResponder {
     sync_state_context.timestamp = timestamp;
 
     // Update pressing states.
-    g_hash_table_foreach(_modifier_bit_to_checked_keys,
-                         synchronize_pressed_states_loop_body,
-                         &sync_state_context);
+    for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
+      SynchronizePressedState(modifier_bit, &sync_state_context, &checked_key);
+    }
   }
 
   void HandleEvent(FlKeyEvent* event,
@@ -418,14 +359,14 @@ class EmbedderResponder {
     sync_state_context.event_logical_key = logical_key;
 
     // Update lock mode states
-    g_hash_table_foreach(_lock_bit_to_checked_keys,
-                         synchronize_lock_states_loop_body,
-                         &sync_state_context);
+    for (auto& [lock_bit, checked_key] : _lock_bit_to_checked_keys) {
+      SynchronizeLockState(lock_bit, &sync_state_context, &checked_key);
+    }
 
     // Update pressing states
-    g_hash_table_foreach(_modifier_bit_to_checked_keys,
-                         synchronize_pressed_states_loop_body,
-                         &sync_state_context);
+    for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
+      SynchronizePressedState(modifier_bit, &sync_state_context, &checked_key);
+    }
 
     // Construct the real event
     const uint64_t last_logical_record =
@@ -519,10 +460,9 @@ class EmbedderResponder {
     if (!is_down) {
       return;
     }
-    const guint mode_bit = GPOINTER_TO_UINT(g_hash_table_lookup(
-        _logical_key_to_lock_bit, uint64_to_gpointer(logical_key)));
-    if (mode_bit != 0) {
-      _lock_records ^= mode_bit;
+    auto found_mode_bit = _logical_key_to_lock_bit.find(logical_key);
+    if (found_mode_bit != _logical_key_to_lock_bit.end()) {
+      _lock_records ^= found_mode_bit->second;
     }
   }
 
@@ -560,29 +500,9 @@ class EmbedderResponder {
     _send_key_event(&out_event, nullptr, nullptr, _send_key_event_user_data);
   }
 
-  // Synchronizes the lock state of a key to its state from the event by
-  // synthesizing events.
-  //
-  // This is used as the body of a loop over #_lock_bit_to_checked_keys.
-  //
-  // This function might modify #_caps_lock_state_logic_inferrence.
-  static void synchronize_lock_states_loop_body(gpointer key,
-                                                gpointer value,
-                                                gpointer user_data) {
-    SyncStateLoopContext* context =
-        reinterpret_cast<SyncStateLoopContext*>(user_data);
-    FlKeyEmbedderCheckedKey* checked_key =
-        reinterpret_cast<FlKeyEmbedderCheckedKey*>(value);
-    guint modifier_bit = GPOINTER_TO_INT(key);
-    EmbedderResponder* self = context->self;
-    self->synchronize_lock_states_loop_body_impl(modifier_bit, context,
-                                                 checked_key);
-  }
-
-  void synchronize_lock_states_loop_body_impl(
-      guint modifier_bit,
-      SyncStateLoopContext* context,
-      FlKeyEmbedderCheckedKey* checked_key) {
+  void SynchronizeLockState(guint modifier_bit,
+                            SyncStateLoopContext* context,
+                            FlKeyEmbedderCheckedKey* checked_key) {
     const uint64_t logical_key = checked_key->primary_logical_key;
     const uint64_t recorded_physical_key =
         lookup_hash_table(_mapping_records, logical_key);
@@ -678,26 +598,9 @@ class EmbedderResponder {
 
   // Synchronizes the pressing state of a key to its state from the event by
   // synthesizing events.
-  //
-  // This is used as the body of a loop over #_modifier_bit_to_checked_keys.
-  static void synchronize_pressed_states_loop_body(gpointer key,
-                                                   gpointer value,
-                                                   gpointer user_data) {
-    SyncStateLoopContext* context =
-        reinterpret_cast<SyncStateLoopContext*>(user_data);
-    FlKeyEmbedderCheckedKey* checked_key =
-        reinterpret_cast<FlKeyEmbedderCheckedKey*>(value);
-
-    const guint modifier_bit = GPOINTER_TO_INT(key);
-    EmbedderResponder* self = context->self;
-    self->synchronize_pressed_states_loop_body_impl(modifier_bit, context,
-                                                    checked_key);
-  }
-
-  void synchronize_pressed_states_loop_body_impl(
-      guint modifier_bit,
-      SyncStateLoopContext* context,
-      FlKeyEmbedderCheckedKey* checked_key) {
+  void SynchronizePressedState(guint modifier_bit,
+                               SyncStateLoopContext* context,
+                               FlKeyEmbedderCheckedKey* checked_key) {
     // Each TestKey contains up to two logical keys, typically the left modifier
     // and the right modifier, that correspond to the same modifier_bit. We'd
     // like to infer whether to synthesize a down or up event for each key.
@@ -811,21 +714,15 @@ class EmbedderResponder {
   //
   // The keys are directly stored guints.  The values must be freed with g_free.
   // This table is freed by the responder.
-  GHashTable* _modifier_bit_to_checked_keys;
+  CheckedKeysMap _modifier_bit_to_checked_keys;
 
   // A static map from GTK modifier bits to #FlKeyEmbedderCheckedKey to
   // configure the lock mode bits that needs to be tracked and kept synchronous
   // on.
-  //
-  // The keys are directly stored guints.  The values must be freed with g_free.
-  // This table is freed by the responder.
-  GHashTable* _lock_bit_to_checked_keys;
+  CheckedKeysMap _lock_bit_to_checked_keys;
 
   // A static map generated by reverse mapping _lock_bit_to_checked_keys.
-  //
-  // It is a map from primary physical keys to lock bits.  Both keys and values
-  // are directly stored uint64s.  This table is freed by the responder.
-  GHashTable* _logical_key_to_lock_bit;
+  std::map<uint64_t, uint64_t> _logical_key_to_lock_bit;
 };
 
 }  // namespace
