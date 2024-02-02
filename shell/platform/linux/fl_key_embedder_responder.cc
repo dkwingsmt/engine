@@ -199,17 +199,6 @@ static void handle_response(bool handled, gpointer user_data) {
   data->callback(handled, data->user_data);
 }
 
-class EmbedderResponder;
-// Context variables for the foreach call used to synchronize pressing states
-// and lock states.
-typedef struct {
-  EmbedderResponder* self;
-  guint state;
-  uint64_t event_logical_key;
-  bool is_down;
-  double timestamp;
-} SyncStateLoopContext;
-
 // Find the stage # by the current record, which should be the recorded stage
 // before the event.
 static int find_stage_by_record(bool is_down, bool is_enabled) {
@@ -304,14 +293,9 @@ class EmbedderResponder {
   void SyncModifiersIfNeeded(guint state, double event_time) {
     const double timestamp = event_time * kMicrosecondsPerMillisecond;
 
-    SyncStateLoopContext sync_state_context;
-    sync_state_context.self = this;
-    sync_state_context.state = state;
-    sync_state_context.timestamp = timestamp;
-
     // Update pressing states.
     for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
-      SynchronizePressedState(modifier_bit, &sync_state_context, &checked_key);
+      SynchronizePressedState(modifier_bit, state, timestamp, &checked_key);
     }
   }
 
@@ -351,21 +335,16 @@ class EmbedderResponder {
     const double timestamp = event_to_timestamp(event);
     const bool is_down_event = event->is_press;
 
-    SyncStateLoopContext sync_state_context;
-    sync_state_context.self = this;
-    sync_state_context.state = event->state;
-    sync_state_context.timestamp = timestamp;
-    sync_state_context.is_down = is_down_event;
-    sync_state_context.event_logical_key = logical_key;
-
     // Update lock mode states
     for (auto& [lock_bit, checked_key] : _lock_bit_to_checked_keys) {
-      SynchronizeLockState(lock_bit, &sync_state_context, &checked_key);
+      SynchronizeLockState(lock_bit, event->state, logical_key, is_down_event,
+                           timestamp, &checked_key);
     }
 
     // Update pressing states
     for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
-      SynchronizePressedState(modifier_bit, &sync_state_context, &checked_key);
+      SynchronizePressedState(modifier_bit, event->state, timestamp,
+                              &checked_key);
     }
 
     // Construct the real event
@@ -501,7 +480,10 @@ class EmbedderResponder {
   }
 
   void SynchronizeLockState(guint modifier_bit,
-                            SyncStateLoopContext* context,
+                            guint state,
+                            uint64_t event_logical_key,
+                            bool is_down,
+                            double timestamp,
                             FlKeyEmbedderCheckedKey* checked_key) {
     const uint64_t logical_key = checked_key->primary_logical_key;
     const uint64_t recorded_physical_key =
@@ -546,11 +528,10 @@ class EmbedderResponder {
     const int stage_by_record = find_stage_by_record(
         pressed_logical_key != 0, (_lock_records & modifier_bit) != 0);
 
-    const bool enabled_by_state = (context->state & modifier_bit) != 0;
-    const bool this_key_is_event_key =
-        logical_key == context->event_logical_key;
+    const bool enabled_by_state = (state & modifier_bit) != 0;
+    const bool this_key_is_event_key = logical_key == event_logical_key;
     if (this_key_is_event_key && checked_key->is_caps_lock) {
-      UpdateCapsLockStateLogicInferrence(context->is_down, enabled_by_state,
+      UpdateCapsLockStateLogicInferrence(is_down, enabled_by_state,
                                          stage_by_record);
       g_return_if_fail(_caps_lock_state_logic_inferrence !=
                        kStateLogicUndecided);
@@ -560,7 +541,7 @@ class EmbedderResponder {
         _caps_lock_state_logic_inferrence == kStateLogicReversed;
     const int stage_by_event =
         this_key_is_event_key
-            ? find_stage_by_self_event(stage_by_record, context->is_down,
+            ? find_stage_by_self_event(stage_by_record, is_down,
                                        enabled_by_state, reverse_state_logic)
             : find_stage_by_others_event(stage_by_record, enabled_by_state);
 
@@ -591,15 +572,15 @@ class EmbedderResponder {
           is_down_event ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp;
       UpdatePressingState(physical_key, is_down_event ? logical_key : 0);
       PossiblyUpdateLockBit(logical_key, is_down_event);
-      SynthesizeSimpleEvent(type, physical_key, logical_key,
-                            context->timestamp);
+      SynthesizeSimpleEvent(type, physical_key, logical_key, timestamp);
     }
   }
 
   // Synchronizes the pressing state of a key to its state from the event by
   // synthesizing events.
   void SynchronizePressedState(guint modifier_bit,
-                               SyncStateLoopContext* context,
+                               guint state,
+                               double timestamp,
                                FlKeyEmbedderCheckedKey* checked_key) {
     // Each TestKey contains up to two logical keys, typically the left modifier
     // and the right modifier, that correspond to the same modifier_bit. We'd
@@ -615,7 +596,7 @@ class EmbedderResponder {
     };
     const guint length = checked_key->secondary_logical_key == 0 ? 1 : 2;
 
-    const bool any_pressed_by_state = (context->state & modifier_bit) != 0;
+    const bool any_pressed_by_state = (state & modifier_bit) != 0;
 
     bool any_pressed_by_record = false;
 
@@ -647,7 +628,7 @@ class EmbedderResponder {
         const uint64_t recorded_logical_key =
             lookup_hash_table(_pressing_records, recorded_physical_key);
         SynthesizeSimpleEvent(kFlutterKeyEventTypeUp, recorded_physical_key,
-                              recorded_logical_key, context->timestamp);
+                              recorded_logical_key, timestamp);
         UpdatePressingState(recorded_physical_key, 0);
       }
     }
@@ -669,7 +650,7 @@ class EmbedderResponder {
         UpdateMappingRecord(physical_key, logical_key);
       }
       SynthesizeSimpleEvent(kFlutterKeyEventTypeDown, physical_key, logical_key,
-                            context->timestamp);
+                            timestamp);
       UpdatePressingState(physical_key, logical_key);
     }
   }
