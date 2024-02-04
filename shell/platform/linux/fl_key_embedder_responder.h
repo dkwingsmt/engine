@@ -86,6 +86,8 @@ void fl_key_embedder_responder_sync_modifiers_if_needed(
  *
  * Returns the keyboard pressed state. The hash table contains one entry per
  * pressed keys, mapping from the logical key to the physical key.
+ *
+ * The returned hashtable must be unreferrenced once.
  */
 GHashTable* fl_key_embedder_responder_get_pressed_state(
     FlKeyEmbedderResponder* responder);

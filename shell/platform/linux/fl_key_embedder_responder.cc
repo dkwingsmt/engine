@@ -10,6 +10,7 @@
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/linux/fl_key_embedder_responder_private.h"
 #include "flutter/shell/platform/linux/key_mapping.h"
+#include "fml/logging.h"
 
 constexpr uint64_t kMicrosecondsPerMillisecond = 1000;
 
@@ -25,29 +26,38 @@ static const FlutterKeyEvent kEmptyEvent{
 
 // Look up a hash table that maps a uint64_t to a uint64_t.
 //
-// Returns 0 if not found.
-//
-// Both key and value should be directly hashed.
-static uint64_t lookup_hash_table(GHashTable* table, uint64_t key) {
-  return gpointer_to_uint64(
-      g_hash_table_lookup(table, uint64_to_gpointer(key)));
+// Returns std::nullopt if not found.
+static std::optional<uint64_t> lookup_hash_table(const std::unordered_map<uint64_t, uint64_t>& table, uint64_t key) {
+  auto found = table.find(key);
+  if (found == table.cend()) {
+    return std::nullopt;
+  }
+  return found->second;
 }
 
-static gboolean hash_table_find_equal_value(gpointer key,
-                                            gpointer value,
-                                            gpointer user_data) {
-  return gpointer_to_uint64(value) == gpointer_to_uint64(user_data);
-}
-
-// Look up a hash table that maps a uint64_t to a uint64_t; given its key,
-// find its value.
+// Look up a hash table that maps a uint64_t to a uint64_t; given its value,
+// find its key.
 //
 // Returns 0 if not found.
-//
-// Both key and value should be directly hashed.
-static uint64_t reverse_lookup_hash_table(GHashTable* table, uint64_t value) {
-  return gpointer_to_uint64(g_hash_table_find(
-      table, hash_table_find_equal_value, uint64_to_gpointer(value)));
+static std::optional<uint64_t> reverse_lookup_hash_table(
+    const std::unordered_map<uint64_t, uint64_t>& table,
+    uint64_t target_value) {
+  for (auto [key, value] : table) {
+    if (value == target_value)  {
+      return key;
+    }
+  }
+  return std::nullopt;
+}
+
+static GHashTable* ToGHashTable(const std::unordered_map<uint64_t, uint64_t>& source) {
+  GHashTable* result = g_hash_table_new(g_direct_hash, g_direct_equal);
+  for (auto [key, value] : source) {
+    g_hash_table_insert(result,
+                        uint64_to_gpointer(key),
+                        uint64_to_gpointer(value));
+  }
+  return result;
 }
 
 static uint64_t to_lower(uint64_t n) {
@@ -229,8 +239,7 @@ static int find_stage_by_self_event(int stage_by_record,
 // Find the stage # by an event for a non-target key, which should be inferred
 // stage during the event.
 static int find_stage_by_others_event(int stage_by_record, bool is_state_on) {
-  g_return_val_if_fail(stage_by_record >= 0 && stage_by_record < 4,
-                       stage_by_record);
+  FML_DCHECK(stage_by_record >= 0 && stage_by_record < 4);
   if (!is_state_on) {
     return 0;
   }
@@ -279,15 +288,11 @@ class EmbedderResponder {
         _lock_bit_to_checked_keys(initialize_lock_bit_to_checked_keys()),
         _logical_key_to_lock_bit(
             initialize_logical_key_to_lock_bit(_lock_bit_to_checked_keys)) {
-    _pressing_records = g_hash_table_new(g_direct_hash, g_direct_equal);
-    _mapping_records = g_hash_table_new(g_direct_hash, g_direct_equal);
     _lock_records = 0;
     _caps_lock_state_logic_inferrence = kStateLogicUndecided;
   }
 
   ~EmbedderResponder() {
-    g_clear_pointer(&_pressing_records, g_hash_table_unref);
-    g_clear_pointer(&_mapping_records, g_hash_table_unref);
   }
 
   void SyncModifiersIfNeeded(guint state, double event_time) {
@@ -311,20 +316,19 @@ class EmbedderResponder {
     }
   }
 
-  GHashTable* GetPressedState() { return _pressing_records; }
+  std::unordered_map<uint64_t, uint64_t> GetPressedState() { return _pressing_records; }
 
  private:
   void UpdateMappingRecord(uint64_t physical_key, uint64_t logical_key) {
-    g_hash_table_insert(_mapping_records, uint64_to_gpointer(logical_key),
-                        uint64_to_gpointer(physical_key));
+    _mapping_records[logical_key] = physical_key;
   }
 
   void HandleEventImpl(FlKeyEvent* event,
                        uint64_t specified_logical_key,
                        FlKeyResponderAsyncCallback callback,
                        gpointer user_data) {
-    g_return_if_fail(event != nullptr);
-    g_return_if_fail(callback != nullptr);
+    FML_DCHECK(event != nullptr);
+    FML_DCHECK(callback != nullptr);
 
     const uint64_t logical_key = specified_logical_key != 0
                                      ? specified_logical_key
@@ -348,21 +352,20 @@ class EmbedderResponder {
     }
 
     // Construct the real event
-    const uint64_t last_logical_record =
+    const std::optional<uint64_t> last_logical_record =
         lookup_hash_table(_pressing_records, physical_key);
 
     FlutterKeyEvent out_event;
     out_event.struct_size = sizeof(out_event);
     out_event.timestamp = timestamp;
     out_event.physical = physical_key;
-    out_event.logical =
-        last_logical_record != 0 ? last_logical_record : logical_key;
+    out_event.logical = last_logical_record.value_or(logical_key);
     out_event.character = nullptr;
     out_event.synthesized = false;
 
     g_autofree char* character_to_free = nullptr;
     if (is_down_event) {
-      if (last_logical_record) {
+      if (last_logical_record.has_value()) {
         // A key has been pressed that has the exact physical key as a currently
         // pressed one. This can happen during repeated events.
         out_event.type = kFlutterKeyEventTypeRepeat;
@@ -372,7 +375,7 @@ class EmbedderResponder {
       character_to_free = event_to_character(event);  // Might be null
       out_event.character = character_to_free;
     } else {  // is_down_event false
-      if (!last_logical_record) {
+      if (!last_logical_record.has_value()) {
         // The physical key has been released before. It might indicate a missed
         // event due to loss of focus, or multiple keyboards pressed keys with
         // the same physical key. Ignore the up event.
@@ -453,12 +456,11 @@ class EmbedderResponder {
   // versa.
   void UpdatePressingState(uint64_t physical_key, uint64_t logical_key) {
     if (logical_key != 0) {
-      g_return_if_fail(lookup_hash_table(_pressing_records, physical_key) == 0);
-      g_hash_table_insert(_pressing_records, uint64_to_gpointer(physical_key),
-                          uint64_to_gpointer(logical_key));
+      FML_DCHECK(!lookup_hash_table(_pressing_records, physical_key).has_value());
+      _pressing_records[physical_key] = logical_key;
     } else {
-      g_return_if_fail(lookup_hash_table(_pressing_records, physical_key) != 0);
-      g_hash_table_remove(_pressing_records, uint64_to_gpointer(physical_key));
+      FML_DCHECK(lookup_hash_table(_pressing_records, physical_key).has_value());
+      _pressing_records.erase(physical_key);
     }
   }
 
@@ -486,7 +488,7 @@ class EmbedderResponder {
                             double timestamp,
                             FlKeyEmbedderCheckedKey* checked_key) {
     const uint64_t logical_key = checked_key->primary_logical_key;
-    const uint64_t recorded_physical_key =
+    const std::optional<uint64_t> recorded_physical_key =
         lookup_hash_table(_mapping_records, logical_key);
     // The physical key is derived from past mapping record if possible.
     //
@@ -495,9 +497,8 @@ class EmbedderResponder {
     // If the event to be synthesized is a key down event, then there might
     // not have been a mapping record, in which case the hard-coded
     // #primary_physical_key is used.
-    const uint64_t physical_key = recorded_physical_key != 0
-                                      ? recorded_physical_key
-                                      : checked_key->primary_physical_key;
+    const uint64_t physical_key = recorded_physical_key.value_or(
+                                      checked_key->primary_physical_key);
 
     // A lock mode key can be at any of a 4-stage cycle, depending on whether
     // it's pressed and enabled. The following table lists the definition of
@@ -518,23 +519,22 @@ class EmbedderResponder {
     // When the exact stage can't be derived, choose the stage that requires the
     // minimal synthesization.
 
-    const uint64_t pressed_logical_key =
-        recorded_physical_key == 0
-            ? 0
-            : lookup_hash_table(_pressing_records, recorded_physical_key);
+    const std::optional<uint64_t> pressed_logical_key =
+        recorded_physical_key.has_value()
+            ? lookup_hash_table(_pressing_records, recorded_physical_key.value())
+            : 0;
 
-    g_return_if_fail(pressed_logical_key == 0 ||
-                     pressed_logical_key == logical_key);
+    FML_DCHECK(!pressed_logical_key.has_value() ||
+               pressed_logical_key.value() == logical_key);
     const int stage_by_record = find_stage_by_record(
-        pressed_logical_key != 0, (_lock_records & modifier_bit) != 0);
+        pressed_logical_key.has_value(), (_lock_records & modifier_bit) != 0);
 
     const bool enabled_by_state = (state & modifier_bit) != 0;
     const bool this_key_is_event_key = logical_key == event_logical_key;
     if (this_key_is_event_key && checked_key->is_caps_lock) {
       UpdateCapsLockStateLogicInferrence(is_down, enabled_by_state,
                                          stage_by_record);
-      g_return_if_fail(_caps_lock_state_logic_inferrence !=
-                       kStateLogicUndecided);
+      FML_DCHECK(_caps_lock_state_logic_inferrence != kStateLogicUndecided);
     }
     const bool reverse_state_logic =
         checked_key->is_caps_lock &&
@@ -552,7 +552,7 @@ class EmbedderResponder {
                                       ? stage_by_event
                                       : stage_by_event + kNumStages;
 
-    g_return_if_fail(stage_by_record <= destination_stage);
+    FML_DCHECK(stage_by_record <= destination_stage);
     if (stage_by_record == destination_stage) {
       return;
     }
@@ -610,23 +610,21 @@ class EmbedderResponder {
     for (guint logical_key_idx = 0; logical_key_idx < length;
          logical_key_idx++) {
       const uint64_t logical_key = logical_keys[logical_key_idx];
-      g_return_if_fail(logical_key != 0);
-      const uint64_t pressing_physical_key =
-          reverse_lookup_hash_table(_pressing_records, logical_key);
-      const bool this_key_pressed_before_event = pressing_physical_key != 0;
+      FML_DCHECK(logical_key != 0);
+      const bool this_key_pressed_before_event =
+          reverse_lookup_hash_table(_pressing_records, logical_key).has_value();
 
       any_pressed_by_record =
           any_pressed_by_record || this_key_pressed_before_event;
 
       if (this_key_pressed_before_event && !any_pressed_by_state) {
-        const uint64_t recorded_physical_key =
-            lookup_hash_table(_mapping_records, logical_key);
         // Since this key has been pressed before, there must have been a
         // recorded physical key.
-        g_return_if_fail(recorded_physical_key != 0);
+        const uint64_t recorded_physical_key =
+            lookup_hash_table(_mapping_records, logical_key).value();
         // In rare cases #recorded_logical_key is different from #logical_key.
         const uint64_t recorded_logical_key =
-            lookup_hash_table(_pressing_records, recorded_physical_key);
+            lookup_hash_table(_pressing_records, recorded_physical_key).value();
         SynthesizeSimpleEvent(kFlutterKeyEventTypeUp, recorded_physical_key,
                               recorded_logical_key, timestamp);
         UpdatePressingState(recorded_physical_key, 0);
@@ -636,17 +634,16 @@ class EmbedderResponder {
     // primary key.
     if (any_pressed_by_state && !any_pressed_by_record) {
       const uint64_t logical_key = checked_key->primary_logical_key;
-      const uint64_t recorded_physical_key =
+      const std::optional<uint64_t> recorded_physical_key =
           lookup_hash_table(_mapping_records, logical_key);
       // The physical key is derived from past mapping record if possible.
       //
       // The event to be synthesized is a key down event. There might not have
       // been a mapping record, in which case the hard-coded
       // #primary_physical_key is used.
-      const uint64_t physical_key = recorded_physical_key != 0
-                                        ? recorded_physical_key
-                                        : checked_key->primary_physical_key;
-      if (recorded_physical_key == 0) {
+      const uint64_t physical_key =
+          recorded_physical_key.value_or(checked_key->primary_physical_key);
+      if (!recorded_physical_key.has_value()) {
         UpdateMappingRecord(physical_key, logical_key);
       }
       SynthesizeSimpleEvent(kFlutterKeyEventTypeDown, physical_key, logical_key,
@@ -663,7 +660,7 @@ class EmbedderResponder {
   // It is a map from Flutter physical key to Flutter logical key.  Both keys
   // and values are directly stored uint64s.  This table is freed by the
   // responder.
-  GHashTable* _pressing_records;
+  std::unordered_map<uint64_t, uint64_t> _pressing_records;
 
   // Internal record for states of whether a lock mode is enabled.
   //
@@ -677,7 +674,7 @@ class EmbedderResponder {
   //
   // It is a map from Flutter logical key to physical key.  Both keys and
   // values are directly stored uint64s.  This table is freed by the responder.
-  GHashTable* _mapping_records;
+  std::unordered_map<uint64_t, uint64_t> _mapping_records;
 
   // The inferred logic type indicating whether the CapsLock state logic is
   // reversed on this platform.
@@ -794,5 +791,5 @@ void fl_key_embedder_responder_sync_modifiers_if_needed(
 
 GHashTable* fl_key_embedder_responder_get_pressed_state(
     FlKeyEmbedderResponder* self) {
-  return self->responder->GetPressedState();
+  return ToGHashTable(self->responder->GetPressedState());
 }

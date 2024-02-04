@@ -89,7 +89,9 @@ void fl_keyboard_manager_sync_modifier_if_needed(FlKeyboardManager* manager,
  * @manager: the #FlKeyboardManager self.
  *
  * Returns the keyboard pressed state. The hash table contains one entry per
- * pressed keys, mapping from the logical key to the physical key.*
+ * pressed keys, mapping from the logical key to the physical key.
+ *
+ * The returned hashtable must be unreferrenced once.
  */
 GHashTable* fl_keyboard_manager_get_pressed_state(FlKeyboardManager* manager);
 

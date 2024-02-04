@@ -558,6 +558,8 @@ FlMethodResponse* get_keyboard_state(FlKeyboardManager* self) {
                           fl_value_new_int(logical_key));
       },
       result);
+
+  g_hash_table_unref(pressing_records);
   return FL_METHOD_RESPONSE(fl_method_success_response_new(result));
 }
 

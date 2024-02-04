@@ -122,8 +122,9 @@ guint fl_keyboard_view_delegate_lookup_key(FlKeyboardViewDelegate* delegate,
  * fl_keyboard_view_delegate_get_keyboard_state:
  *
  * Returns the keyboard pressed state. The hash table contains one entry per
- * pressed keys, mapping from the logical key to the physical key.*
+ * pressed keys, mapping from the logical key to the physical key.
  *
+ * The returned hashtable will be unreferrenced once.
  */
 GHashTable* fl_keyboard_view_delegate_get_keyboard_state(
     FlKeyboardViewDelegate* delegate);
