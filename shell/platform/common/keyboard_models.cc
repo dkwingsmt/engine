@@ -59,39 +59,33 @@ FlutterKeyEventType ToEmbedderApiType(EventType type) {
   }
 }
 
-FlutterKeyCallbackGuard::FlutterKeyCallbackGuard(uint64_t response_id)
-    : _response_id(response_id) {}
+FlutterKeyCallbackGuard::FlutterKeyCallbackGuard(void* content)
+    : content_(content) {}
 
 FlutterKeyCallbackGuard::~FlutterKeyCallbackGuard() {
-  if (_response_id != kDontNeedResponse && !resolved()) {
-    FML_LOG(ERROR) << "The callback is returned without being resolved.";
+  if (content_ != nullptr) {
+    FML_LOG(ERROR) << "The guard is destroyed without content being resolved.";
   }
-  if (_response_id != kDontNeedResponse && !sent_any_events()) {
-    FML_LOG(ERROR) << "The callback is returned without sending any events.";
+  if (!sent_any_events()) {
+    FML_LOG(ERROR) << "The guard is destroyed without sending any events.";
   }
 }
 
-uint64_t FlutterKeyCallbackGuard::ResolveByPending() {
-  FML_DCHECK(!_resolved) << "This callback has been resolved.";
-  FML_DCHECK(_response_id != kDontNeedResponse) << "Unexpected empty response";
-  if (_resolved) {
-    return 0;
-  }
-  _resolved = true;
-  _sent_primary_event = true;
-  return _response_id;
-}
-
-void FlutterKeyCallbackGuard::ResolveByHandling() {
-  FML_DCHECK(!_resolved) << "This callback has been resolved.";
-  if (_resolved) {
-    return;
-  }
-  _resolved = true;
+void* FlutterKeyCallbackGuard::MarkSentPrimaryEvent() {
+  FML_DCHECK(!sent_primary_event_);
+  FML_DCHECK(content_ != nullptr);
+  sent_primary_event_ = true;
+  return Release();
 }
 
 void FlutterKeyCallbackGuard::MarkSentSynthesizedEvent() {
-  _sent_synthesized_events = true;
+  sent_synthesized_events_ = true;
+}
+
+void* FlutterKeyCallbackGuard::Release() {
+  void* content = content_;
+  content_ = nullptr;
+  return content;
 }
 
 uint64_t PhysicallyIndexed::EnsureLogicalKey(NativeEvent& native_event,

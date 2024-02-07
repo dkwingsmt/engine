@@ -16,6 +16,7 @@
 
 namespace {
 
+using flutter::FlutterKeyCallbackGuard;
 using flutter::LockState;
 
 NSDictionary* ToNSDictionary(std::unordered_map<uint64_t, uint64_t> source) {
@@ -187,16 +188,32 @@ static NSUInteger setBitMask(NSUInteger base, NSUInteger mask, bool value) {
  */
 void HandleResponse(bool handled, void* user_data);
 
-}  // namespace
+class KeyEventCallback {
+ public:
+  KeyEventCallback(FlutterAsyncKeyCallback callback)
+      : callback_((__bridge_retained void*)callback) {}
 
-/**
- * The invocation context for |HandleResponse|, wrapping
- * |FlutterEmbedderKeyResponder.handleResponse|.
- */
-struct FlutterKeyPendingResponse {
-  FlutterEmbedderKeyResponder* responder;
-  uint64_t responseId;
+  ~KeyEventCallback() {
+    FML_DCHECK(called) << "The callback has not been called.";
+    // Transfer the ownership to release it at the end of the destructor.
+    FlutterAsyncKeyCallback transferred_callback =
+        (__bridge_transfer FlutterAsyncKeyCallback)callback_;
+    (void)transferred_callback;  // Suppress unused variable warning
+  }
+
+  void Handle(bool handled) {
+    FML_DCHECK(!called) << "The callback has been called.";
+    called = true;
+    FlutterAsyncKeyCallback callback = (__bridge FlutterAsyncKeyCallback)callback_;
+    callback(handled);
+  }
+
+ private:
+  void* callback_;
+  bool called = false;
 };
+
+}  // namespace
 
 class NativeEventMacos : public flutter::NativeEvent {
  public:
@@ -365,10 +382,6 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 };
 
 @interface FlutterEmbedderKeyResponder ()
-/**
- * Processes the response from the framework.
- */
-- (void)handleResponseForId:(uint64_t)responseId withResult:(BOOL)handled;
 @end
 
 @implementation FlutterEmbedderKeyResponder {
@@ -377,17 +390,6 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
   flutter::LockStateTracker* _lock_tracker;
 
   FlutterSendEmbedderKeyEvent _sendEventToEngine;
-
-  // A self-incrementing ID used to label key events sent to the framework.
-  //
-  // All IDs are positive. 0 is reserved for empty.
-  uint64_t _nextResponseId;
-
-  // A map of unresponded key events sent to the framework.
-  //
-  // Its values are |responseId|s, and keys are the callback that was received
-  // along with the event.
-  NSMutableDictionary<NSNumber*, FlutterAsyncKeyCallback>* _pendingResponses;
 
   // A constant mask for NSEvent.modifierFlags that Flutter synchronizes with.
   //
@@ -418,8 +420,6 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
   self = [super init];
   if (self != nil) {
     _sendEventToEngine = sendEvent;
-    _nextResponseId = 1;  // Starts at 1; 0 reserved for empty
-    _pendingResponses = [NSMutableDictionary dictionary];
     _press_tracker = new flutter::PressStateTracker;
     _modifier_tracker = new flutter::ModifierStateTracker;
     _lock_tracker = new flutter::LockStateTracker;
@@ -440,32 +440,30 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
   // `synthesized`.
   NSAssert(callback != nil, @"The callback must not be nil.");
 
-  uint64_t responseId = _nextResponseId;
-  _nextResponseId += 1;
-  _pendingResponses[@(responseId)] = callback;
-  auto guarded_callback = std::make_unique<FlutterKeyCallbackGuard>(responseId);
+  FlutterKeyCallbackGuard guard(new KeyEventCallback(callback));
 
   switch (event.type) {
     case NSEventTypeKeyDown:
     case NSEventTypeKeyUp:
-      [self handlePressEvent:event guard:*guarded_callback];
+      [self handlePressEvent:event guard:guard];
       break;
     case NSEventTypeFlagsChanged:
-      [self handleFlagEvent:event guard:*guarded_callback];
+      [self handleFlagEvent:event guard:guard];
       break;
     default:
       NSAssert(false, @"Unexpected key event type: |%@|.", @(event.type));
   }
   // Every handleEvent's callback expects a reply. If the native event generates
   // no primary events, reply it now with "handled".
-  if (!guarded_callback->resolved()) {
-    guarded_callback->ResolveByHandling();
-    [self handleResponseForId:responseId withResult:true];
+  std::unique_ptr<KeyEventCallback> remaining_callback(
+      reinterpret_cast<KeyEventCallback*>(guard.Release()));
+  if (remaining_callback != nullptr) {
+    remaining_callback->Handle(true);
   }
   // Every native event must send at least one event to satisfy the protocol for
   // event modes. If there are no any events sent, synthesize an empty one here.
   // This will not be needed when the channel mode is no more.
-  if (!guarded_callback->sent_any_events()) {
+  if (!guard.sent_any_events()) {
     FlutterKeyEvent flutterEvent = {
         .struct_size = sizeof(FlutterKeyEvent),
         .timestamp = 0,
@@ -475,8 +473,8 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
         .character = nil,
         .synthesized = true,
     };
-    [self sendEvent:flutterEvent guard:*guarded_callback];
-    guarded_callback->MarkSentSynthesizedEvent();
+    [self sendEvent:flutterEvent guard:guard];
+    guard.MarkSentSynthesizedEvent();
   }
   NSAssert(_lastModifierFlagsOfInterest == (event.modifierFlags & _modifierFlagOfInterestMask),
            @"The modifier flags are not properly updated: recorded 0x%lx, event with mask 0x%lx",
@@ -485,14 +483,13 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 
 - (void)syncModifiersIfNeeded:(NSEventModifierFlags)modifierFlags
                     timestamp:(NSTimeInterval)timestamp {
-  auto guard =
-      std::make_unique<FlutterKeyCallbackGuard>(FlutterKeyCallbackGuard::kDontNeedResponse);
+  FlutterKeyCallbackGuard guard(nullptr);
   [self synchronizeAllModifierFlags:modifierFlags
                       ignoringFlags:0
                           timestamp:timestamp
               isACapslockFlagChange:false
-                              guard:*guard];
-  guard->MarkSentSynthesizedEvent();
+                              guard:guard];
+  guard.MarkSentSynthesizedEvent();
 }
 
 #pragma mark - Private
@@ -503,11 +500,8 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
     guard.MarkSentSynthesizedEvent();
     _sendEventToEngine(event, nullptr, nullptr);
   } else {
-    // Send a primary event to the framework, expecting its response.
-    uint64_t response_id = guard.ResolveByPending();
-    // The `pending` is released in `HandleResponse`.
-    FlutterKeyPendingResponse* pending = new FlutterKeyPendingResponse{self, response_id};
-    _sendEventToEngine(event, HandleResponse, pending);
+    void* callback = guard.MarkSentPrimaryEvent();
+    _sendEventToEngine(event, HandleResponse, callback);
   }
 }
 
@@ -646,13 +640,6 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
   }
 }
 
-- (void)handleResponseForId:(uint64_t)responseId withResult:(BOOL)handled {
-  FlutterAsyncKeyCallback callback = _pendingResponses[@(responseId)];
-  NSAssert(callback != nil, @"Invalid response ID %llu", responseId);
-  callback(handled);
-  [_pendingResponses removeObjectForKey:@(responseId)];
-}
-
 - (nonnull NSDictionary*)getPressedState {
   std::unordered_map<uint64_t, uint64_t> result;
   auto press_state = _press_tracker->GetPressedState();
@@ -678,8 +665,8 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 namespace {
 void HandleResponse(bool handled, void* user_data) {
   // Use unique_ptr to release on leaving.
-  auto pending = std::unique_ptr<FlutterKeyPendingResponse>(
-      reinterpret_cast<FlutterKeyPendingResponse*>(user_data));
-  [pending->responder handleResponseForId:pending->responseId withResult:handled];
+  std::unique_ptr<KeyEventCallback> callback(reinterpret_cast<KeyEventCallback*>(user_data));
+  FML_DCHECK(callback != nullptr);
+  callback->Handle(handled);
 }
 }  // namespace

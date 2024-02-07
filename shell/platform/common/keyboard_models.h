@@ -5,6 +5,7 @@
 #ifndef FLUTTER_SHELL_PLATFORM_COMMON_KEYBOARD_MODELS_H_
 #define FLUTTER_SHELL_PLATFORM_COMMON_KEYBOARD_MODELS_H_
 
+#include <functional>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -34,9 +35,7 @@ FlutterKeyEventType ToEmbedderApiType(EventType type);
  */
 class FlutterKeyCallbackGuard {
  public:
-  static constexpr uint64_t kDontNeedResponse = 0;
-
-  FlutterKeyCallbackGuard(uint64_t response_id);
+  FlutterKeyCallbackGuard(void* content);
 
   ~FlutterKeyCallbackGuard();
 
@@ -44,27 +43,20 @@ class FlutterKeyCallbackGuard {
    * Mark that this guard has been used to send a primary event a return the
    * stored response ID.
    */
-  uint64_t ResolveByPending();
-
-  /**
-   * Mark that this guard has been resolved by directly invoking the handler
-   * callback and without a primary event.
-   */
-  void ResolveByHandling();
+  [[nodiscard]] void* MarkSentPrimaryEvent();
 
   void MarkSentSynthesizedEvent();
 
-  bool resolved() const { return _resolved; }
+  [[nodiscard]] void* Release();
 
   bool sent_any_events() const {
-    return _sent_primary_event || _sent_synthesized_events;
+    return sent_primary_event_ || sent_synthesized_events_;
   }
 
  private:
-  const uint64_t _response_id;
-  bool _resolved = false;
-  bool _sent_primary_event = false;
-  bool _sent_synthesized_events = false;
+  void* content_;
+  bool sent_primary_event_ = false;
+  bool sent_synthesized_events_ = false;
 
   FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
 };
