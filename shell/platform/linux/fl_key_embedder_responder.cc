@@ -27,7 +27,9 @@ static const FlutterKeyEvent kEmptyEvent{
 // Look up a hash table that maps a uint64_t to a uint64_t.
 //
 // Returns std::nullopt if not found.
-static std::optional<uint64_t> lookup_hash_table(const std::unordered_map<uint64_t, uint64_t>& table, uint64_t key) {
+static std::optional<uint64_t> lookup_hash_table(
+    const std::unordered_map<uint64_t, uint64_t>& table,
+    uint64_t key) {
   auto found = table.find(key);
   if (found == table.cend()) {
     return std::nullopt;
@@ -43,18 +45,18 @@ static std::optional<uint64_t> reverse_lookup_hash_table(
     const std::unordered_map<uint64_t, uint64_t>& table,
     uint64_t target_value) {
   for (auto [key, value] : table) {
-    if (value == target_value)  {
+    if (value == target_value) {
       return key;
     }
   }
   return std::nullopt;
 }
 
-static GHashTable* ToGHashTable(const std::unordered_map<uint64_t, uint64_t>& source) {
+static GHashTable* ToGHashTable(
+    const std::unordered_map<uint64_t, uint64_t>& source) {
   GHashTable* result = g_hash_table_new(g_direct_hash, g_direct_equal);
   for (auto [key, value] : source) {
-    g_hash_table_insert(result,
-                        uint64_to_gpointer(key),
+    g_hash_table_insert(result, uint64_to_gpointer(key),
                         uint64_to_gpointer(value));
   }
   return result;
@@ -292,8 +294,7 @@ class EmbedderResponder {
     _caps_lock_state_logic_inferrence = kStateLogicUndecided;
   }
 
-  ~EmbedderResponder() {
-  }
+  ~EmbedderResponder() {}
 
   void SyncModifiersIfNeeded(guint state, double event_time) {
     const double timestamp = event_time * kMicrosecondsPerMillisecond;
@@ -316,7 +317,9 @@ class EmbedderResponder {
     }
   }
 
-  std::unordered_map<uint64_t, uint64_t> GetPressedState() { return _pressing_records; }
+  std::unordered_map<uint64_t, uint64_t> GetPressedState() {
+    return _pressing_records;
+  }
 
  private:
   void UpdateMappingRecord(uint64_t physical_key, uint64_t logical_key) {
@@ -456,10 +459,12 @@ class EmbedderResponder {
   // versa.
   void UpdatePressingState(uint64_t physical_key, uint64_t logical_key) {
     if (logical_key != 0) {
-      FML_DCHECK(!lookup_hash_table(_pressing_records, physical_key).has_value());
+      FML_DCHECK(
+          !lookup_hash_table(_pressing_records, physical_key).has_value());
       _pressing_records[physical_key] = logical_key;
     } else {
-      FML_DCHECK(lookup_hash_table(_pressing_records, physical_key).has_value());
+      FML_DCHECK(
+          lookup_hash_table(_pressing_records, physical_key).has_value());
       _pressing_records.erase(physical_key);
     }
   }
@@ -497,8 +502,8 @@ class EmbedderResponder {
     // If the event to be synthesized is a key down event, then there might
     // not have been a mapping record, in which case the hard-coded
     // #primary_physical_key is used.
-    const uint64_t physical_key = recorded_physical_key.value_or(
-                                      checked_key->primary_physical_key);
+    const uint64_t physical_key =
+        recorded_physical_key.value_or(checked_key->primary_physical_key);
 
     // A lock mode key can be at any of a 4-stage cycle, depending on whether
     // it's pressed and enabled. The following table lists the definition of
@@ -521,8 +526,9 @@ class EmbedderResponder {
 
     const std::optional<uint64_t> pressed_logical_key =
         recorded_physical_key.has_value()
-            ? lookup_hash_table(_pressing_records, recorded_physical_key.value())
-            : 0;
+            ? lookup_hash_table(_pressing_records,
+                                recorded_physical_key.value())
+            : std::nullopt;
 
     FML_DCHECK(!pressed_logical_key.has_value() ||
                pressed_logical_key.value() == logical_key);
@@ -565,7 +571,7 @@ class EmbedderResponder {
       const int standard_current_stage = current_stage % kNumStages;
       const bool is_down_event =
           standard_current_stage == 0 || standard_current_stage == 2;
-      if (is_down_event && recorded_physical_key == 0) {
+      if (is_down_event && !recorded_physical_key.has_value()) {
         UpdateMappingRecord(physical_key, logical_key);
       }
       FlutterKeyEventType type =
