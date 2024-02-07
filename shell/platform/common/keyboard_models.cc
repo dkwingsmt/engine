@@ -59,6 +59,41 @@ FlutterKeyEventType ToEmbedderApiType(EventType type) {
   }
 }
 
+FlutterKeyCallbackGuard::FlutterKeyCallbackGuard(uint64_t response_id)
+    : _response_id(response_id) {}
+
+FlutterKeyCallbackGuard::~FlutterKeyCallbackGuard() {
+  if (_response_id != kDontNeedResponse && !resolved()) {
+    FML_LOG(ERROR) << "The callback is returned without being resolved.";
+  }
+  if (_response_id != kDontNeedResponse && !sent_any_events()) {
+    FML_LOG(ERROR) << "The callback is returned without sending any events.";
+  }
+}
+
+uint64_t FlutterKeyCallbackGuard::ResolveByPending() {
+  FML_DCHECK(!_resolved) << "This callback has been resolved.";
+  FML_DCHECK(_response_id != kDontNeedResponse) << "Unexpected empty response";
+  if (_resolved) {
+    return 0;
+  }
+  _resolved = true;
+  _sent_primary_event = true;
+  return _response_id;
+}
+
+void FlutterKeyCallbackGuard::ResolveByHandling() {
+  FML_DCHECK(!_resolved) << "This callback has been resolved.";
+  if (_resolved) {
+    return;
+  }
+  _resolved = true;
+}
+
+void FlutterKeyCallbackGuard::MarkSentSynthesizedEvent() {
+  _sent_synthesized_events = true;
+}
+
 uint64_t PhysicallyIndexed::EnsureLogicalKey(NativeEvent& native_event,
                                              bool force_update) {
   const uint64_t physical_key = native_event.physical_key();

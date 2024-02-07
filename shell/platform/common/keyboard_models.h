@@ -24,6 +24,51 @@ enum class LockState { kReleasedOff, kPressedOn, kReleasedOn, kPressedOff };
 
 FlutterKeyEventType ToEmbedderApiType(EventType type);
 
+/**
+ * Guards a |AsyncKeyCallback| to make sure it's handled exactly once
+ * throughout |FlutterEmbedderKeyResponder.handleEvent|.
+ *
+ * A callback can be resolved either with |ResolveByPending| or
+ * |ResolveByHandling|. Either way, the callback cannot be resolved again, or an
+ * assertion will be thrown.
+ */
+class FlutterKeyCallbackGuard {
+ public:
+  static constexpr uint64_t kDontNeedResponse = 0;
+
+  FlutterKeyCallbackGuard(uint64_t response_id);
+
+  ~FlutterKeyCallbackGuard();
+
+  /**
+   * Mark that this guard has been used to send a primary event a return the
+   * stored response ID.
+   */
+  uint64_t ResolveByPending();
+
+  /**
+   * Mark that this guard has been resolved by directly invoking the handler
+   * callback and without a primary event.
+   */
+  void ResolveByHandling();
+
+  void MarkSentSynthesizedEvent();
+
+  bool resolved() const { return _resolved; }
+
+  bool sent_any_events() const {
+    return _sent_primary_event || _sent_synthesized_events;
+  }
+
+ private:
+  const uint64_t _response_id;
+  bool _resolved = false;
+  bool _sent_primary_event = false;
+  bool _sent_synthesized_events = false;
+
+  FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
+};
+
 class NativeEvent {
  public:
   NativeEvent() {}
