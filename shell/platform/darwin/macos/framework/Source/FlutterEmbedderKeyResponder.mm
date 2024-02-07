@@ -180,14 +180,6 @@ static NSUInteger setBitMask(NSUInteger base, NSUInteger mask, bool value) {
   return (base & ~mask) | (value ? mask : 0);
 }
 
-/**
- * The C-function sent to the embedder's |SendKeyEvent|, wrapping
- * |FlutterEmbedderKeyResponder.handleResponse|.
- *
- * For the reason of this wrap, see |FlutterKeyPendingResponse|.
- */
-void HandleResponse(bool handled, void* user_data);
-
 class KeyEventCallback {
  public:
   KeyEventCallback(FlutterAsyncKeyCallback callback)
@@ -206,6 +198,18 @@ class KeyEventCallback {
     called = true;
     FlutterAsyncKeyCallback callback = (__bridge FlutterAsyncKeyCallback)callback_;
     callback(handled);
+  }
+
+  /**
+   * The C-function sent to the embedder's |SendKeyEvent|, wrapping
+   * |FlutterEmbedderKeyResponder.handleResponse|.
+   *
+   * For the reason of this wrap, see |FlutterKeyPendingResponse|.
+   */
+  static void HandleResponse(bool handled, void* user_data) {
+    std::unique_ptr<KeyEventCallback> self(reinterpret_cast<KeyEventCallback*>(user_data));
+    FML_DCHECK(self != nullptr);
+    self->Handle(handled);
   }
 
  private:
@@ -500,7 +504,7 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
     _sendEventToEngine(event, nullptr, nullptr);
   } else {
     void* callback = guard.MarkSentPrimaryEvent();
-    _sendEventToEngine(event, HandleResponse, callback);
+    _sendEventToEngine(event, KeyEventCallback::HandleResponse, callback);
   }
 }
 
@@ -660,12 +664,3 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
 // }
 
 @end
-
-namespace {
-void HandleResponse(bool handled, void* user_data) {
-  // Use unique_ptr to release on leaving.
-  std::unique_ptr<KeyEventCallback> callback(reinterpret_cast<KeyEventCallback*>(user_data));
-  FML_DCHECK(callback != nullptr);
-  callback->Handle(handled);
-}
-}  // namespace
