@@ -248,7 +248,6 @@ static uint64_t corrected_modifier_physical_key(
   }
 
   return corrected_physical_key;
-  ;
 }
 
 class EmbedderResponder {
