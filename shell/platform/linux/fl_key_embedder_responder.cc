@@ -7,6 +7,7 @@
 #include <gtk/gtk.h>
 #include <cinttypes>
 
+#include "flutter/shell/platform/common/keyboard_models.h"
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/linux/fl_key_embedder_responder_private.h"
 #include "flutter/shell/platform/linux/key_mapping.h"
@@ -21,7 +22,7 @@ static const FlutterKeyEvent kEmptyEvent{
     .physical = 0,
     .logical = 0,
     .character = nullptr,
-    .synthesized = false,
+    .synthesized = true,
 };
 
 // Look up a hash table that maps a uint64_t to a uint64_t.
@@ -85,65 +86,46 @@ static uint64_t to_lower(uint64_t n) {
   return n;
 }
 
-/* Define FlKeyEmbedderUserData */
-
-/**
- * FlKeyEmbedderUserData:
- * The user_data used when #FlKeyEmbedderResponder sends message through the
- * embedder.SendKeyEvent API.
- */
-#define FL_TYPE_EMBEDDER_USER_DATA fl_key_embedder_user_data_get_type()
-G_DECLARE_FINAL_TYPE(FlKeyEmbedderUserData,
-                     fl_key_embedder_user_data,
-                     FL,
-                     KEY_EMBEDDER_USER_DATA,
-                     GObject);
-
-struct _FlKeyEmbedderUserData {
-  GObject parent_instance;
-
-  FlKeyResponderAsyncCallback callback;
-  gpointer user_data;
-};
-
-G_DEFINE_TYPE(FlKeyEmbedderUserData, fl_key_embedder_user_data, G_TYPE_OBJECT)
-
-static void fl_key_embedder_user_data_dispose(GObject* object);
-
-static void fl_key_embedder_user_data_class_init(
-    FlKeyEmbedderUserDataClass* klass) {
-  G_OBJECT_CLASS(klass)->dispose = fl_key_embedder_user_data_dispose;
-}
-
-static void fl_key_embedder_user_data_init(FlKeyEmbedderUserData* self) {}
-
-static void fl_key_embedder_user_data_dispose(GObject* object) {
-  // The following line suppresses a warning for unused function
-  // FL_IS_KEY_EMBEDDER_USER_DATA.
-  g_return_if_fail(FL_IS_KEY_EMBEDDER_USER_DATA(object));
-}
-
-// Creates a new FlKeyChannelUserData private class with all information.
-//
-// The callback and the user_data might be nullptr.
-static FlKeyEmbedderUserData* fl_key_embedder_user_data_new(
-    FlKeyResponderAsyncCallback callback,
-    gpointer user_data) {
-  FlKeyEmbedderUserData* self = FL_KEY_EMBEDDER_USER_DATA(
-      g_object_new(FL_TYPE_EMBEDDER_USER_DATA, nullptr));
-
-  self->callback = callback;
-  self->user_data = user_data;
-  return self;
-}
-
 namespace {
+
+using flutter::FlutterKeyCallbackGuard;
+// using flutter::LockState;
 
 typedef enum {
   kStateLogicUndecided,
   kStateLogicNormal,
   kStateLogicReversed,
 } StateLogicInferrence;
+
+class KeyEventCallback {
+ public:
+  KeyEventCallback(FlKeyResponderAsyncCallback callback, gpointer user_data)
+      : callback_(callback), user_data_(user_data) {}
+
+  ~KeyEventCallback() {
+    FML_DCHECK(called) << "The callback has not been called.";
+  }
+
+  void Handle(bool handled) {
+    FML_DCHECK(!called) << "The callback has been called.";
+    called = true;
+    callback_(handled, user_data_);
+  }
+
+  // Handles a response from the embedder API to a key event sent to the
+  // framework earlier.
+  static void HandleResponse(bool handled, void* user_data) {
+    std::unique_ptr<KeyEventCallback> self(
+        reinterpret_cast<KeyEventCallback*>(user_data));
+    FML_DCHECK(self != nullptr);
+    self->Handle(handled);
+  }
+
+ private:
+  FlKeyResponderAsyncCallback callback_;
+  gpointer user_data_;
+  bool called = false;
+};
 
 // Revert-map a logical_key_to_lock_bit table to a logical_key_to_lock_bit
 // table.
@@ -199,16 +181,6 @@ static char* event_to_character(const FlKeyEvent* event) {
     return nullptr;
   }
   return result;
-}
-
-// Handles a response from the embedder API to a key event sent to the framework
-// earlier.
-static void handle_response(bool handled, gpointer user_data) {
-  g_autoptr(FlKeyEmbedderUserData) data = FL_KEY_EMBEDDER_USER_DATA(user_data);
-
-  g_return_if_fail(data->callback != nullptr);
-
-  data->callback(handled, data->user_data);
 }
 
 // Find the stage # by the current record, which should be the recorded stage
@@ -296,12 +268,15 @@ class EmbedderResponder {
 
   ~EmbedderResponder() {}
 
-  void SyncModifiersIfNeeded(guint state, double event_time) {
+  void SyncModifiersIfNeeded(guint state,
+                             double event_time,
+                             FlutterKeyCallbackGuard& guard) {
     const double timestamp = event_time * kMicrosecondsPerMillisecond;
 
     // Update pressing states.
     for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
-      SynchronizePressedState(modifier_bit, state, timestamp, &checked_key);
+      SynchronizePressedState(modifier_bit, state, timestamp, &checked_key,
+                              guard);
     }
   }
 
@@ -309,11 +284,20 @@ class EmbedderResponder {
                    uint64_t specified_logical_key,
                    FlKeyResponderAsyncCallback callback,
                    gpointer user_data) {
-    _sent_any_events = false;
-    HandleEventImpl(event, specified_logical_key, callback, user_data);
-    if (!_sent_any_events) {
-      _send_key_event(&kEmptyEvent, nullptr, nullptr,
-                      _send_key_event_user_data);
+    FlutterKeyCallbackGuard guard(new KeyEventCallback(callback, user_data));
+    HandleEventImpl(event, specified_logical_key, guard);
+    // Every handleEvent's callback expects a reply. If the native event
+    // generates no primary events, reply it now with "handled".
+    std::unique_ptr<KeyEventCallback> remaining_callback(
+        reinterpret_cast<KeyEventCallback*>(guard.Release()));
+    if (remaining_callback != nullptr) {
+      remaining_callback->Handle(true);
+    }
+    // Every native event must send at least one event to satisfy the protocol
+    // for event modes. If there are no any events sent, synthesize an empty one
+    // here. This will not be needed when the channel mode is no more.
+    if (!guard.sent_any_events()) {
+      SendEvent(&kEmptyEvent, guard);
     }
   }
 
@@ -322,16 +306,26 @@ class EmbedderResponder {
   }
 
  private:
+  void SendEvent(const FlutterKeyEvent* event, FlutterKeyCallbackGuard& guard) {
+    if (event->synthesized) {
+      // Send a synthesized key event, never expecting its event result.
+      guard.MarkSentSynthesizedEvent();
+      _send_key_event(event, nullptr, nullptr, _send_key_event_user_data);
+    } else {
+      void* callback = guard.MarkSentPrimaryEvent();
+      _send_key_event(event, KeyEventCallback::HandleResponse, callback,
+                      _send_key_event_user_data);
+    }
+  }
+
   void UpdateMappingRecord(uint64_t physical_key, uint64_t logical_key) {
     _mapping_records[logical_key] = physical_key;
   }
 
   void HandleEventImpl(FlKeyEvent* event,
                        uint64_t specified_logical_key,
-                       FlKeyResponderAsyncCallback callback,
-                       gpointer user_data) {
+                       FlutterKeyCallbackGuard& guard) {
     FML_DCHECK(event != nullptr);
-    FML_DCHECK(callback != nullptr);
 
     const uint64_t logical_key = specified_logical_key != 0
                                      ? specified_logical_key
@@ -345,13 +339,13 @@ class EmbedderResponder {
     // Update lock mode states
     for (auto& [lock_bit, checked_key] : _lock_bit_to_checked_keys) {
       SynchronizeLockState(lock_bit, event->state, logical_key, is_down_event,
-                           timestamp, &checked_key);
+                           timestamp, &checked_key, guard);
     }
 
     // Update pressing states
     for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
       SynchronizePressedState(modifier_bit, event->state, timestamp,
-                              &checked_key);
+                              &checked_key, guard);
     }
 
     // Construct the real event
@@ -382,7 +376,6 @@ class EmbedderResponder {
         // The physical key has been released before. It might indicate a missed
         // event due to loss of focus, or multiple keyboards pressed keys with
         // the same physical key. Ignore the up event.
-        callback(true, user_data);
         return;
       } else {
         out_event.type = kFlutterKeyEventTypeUp;
@@ -396,11 +389,7 @@ class EmbedderResponder {
     if (is_down_event) {
       UpdateMappingRecord(physical_key, logical_key);
     }
-    FlKeyEmbedderUserData* response_data =
-        fl_key_embedder_user_data_new(callback, user_data);
-    _sent_any_events = true;
-    _send_key_event(&out_event, handle_response, response_data,
-                    _send_key_event_user_data);
+    SendEvent(&out_event, guard);
   }
 
   // Infer the logic type of CapsLock on the current platform if applicable.
@@ -473,7 +462,8 @@ class EmbedderResponder {
   void SynthesizeSimpleEvent(FlutterKeyEventType type,
                              uint64_t physical,
                              uint64_t logical,
-                             double timestamp) {
+                             double timestamp,
+                             FlutterKeyCallbackGuard& guard) {
     FlutterKeyEvent out_event;
     out_event.struct_size = sizeof(out_event);
     out_event.timestamp = timestamp;
@@ -482,8 +472,7 @@ class EmbedderResponder {
     out_event.logical = logical;
     out_event.character = nullptr;
     out_event.synthesized = true;
-    _sent_any_events = true;
-    _send_key_event(&out_event, nullptr, nullptr, _send_key_event_user_data);
+    SendEvent(&out_event, guard);
   }
 
   void SynchronizeLockState(guint modifier_bit,
@@ -491,7 +480,8 @@ class EmbedderResponder {
                             uint64_t event_logical_key,
                             bool is_down,
                             double timestamp,
-                            FlKeyEmbedderCheckedKey* checked_key) {
+                            FlKeyEmbedderCheckedKey* checked_key,
+                            FlutterKeyCallbackGuard& guard) {
     const uint64_t logical_key = checked_key->primary_logical_key;
     const std::optional<uint64_t> recorded_physical_key =
         lookup_hash_table(_mapping_records, logical_key);
@@ -578,7 +568,7 @@ class EmbedderResponder {
           is_down_event ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp;
       UpdatePressingState(physical_key, is_down_event ? logical_key : 0);
       PossiblyUpdateLockBit(logical_key, is_down_event);
-      SynthesizeSimpleEvent(type, physical_key, logical_key, timestamp);
+      SynthesizeSimpleEvent(type, physical_key, logical_key, timestamp, guard);
     }
   }
 
@@ -587,7 +577,8 @@ class EmbedderResponder {
   void SynchronizePressedState(guint modifier_bit,
                                guint state,
                                double timestamp,
-                               FlKeyEmbedderCheckedKey* checked_key) {
+                               FlKeyEmbedderCheckedKey* checked_key,
+                               FlutterKeyCallbackGuard& guard) {
     // Each TestKey contains up to two logical keys, typically the left modifier
     // and the right modifier, that correspond to the same modifier_bit. We'd
     // like to infer whether to synthesize a down or up event for each key.
@@ -632,7 +623,7 @@ class EmbedderResponder {
         const uint64_t recorded_logical_key =
             lookup_hash_table(_pressing_records, recorded_physical_key).value();
         SynthesizeSimpleEvent(kFlutterKeyEventTypeUp, recorded_physical_key,
-                              recorded_logical_key, timestamp);
+                              recorded_logical_key, timestamp, guard);
         UpdatePressingState(recorded_physical_key, 0);
       }
     }
@@ -653,7 +644,7 @@ class EmbedderResponder {
         UpdateMappingRecord(physical_key, logical_key);
       }
       SynthesizeSimpleEvent(kFlutterKeyEventTypeDown, physical_key, logical_key,
-                            timestamp);
+                            timestamp, guard);
       UpdatePressingState(physical_key, logical_key);
     }
   }
@@ -687,10 +678,6 @@ class EmbedderResponder {
   //
   // For more information, see #UpdateCapsLockStateLogicInferrence.
   StateLogicInferrence _caps_lock_state_logic_inferrence;
-
-  // Record if any events has been sent during a
-  // |fl_key_embedder_responder_handle_event| call.
-  bool _sent_any_events;
 
   // A static map from GTK modifier bits to #FlKeyEmbedderCheckedKey to
   // configure the modifier keys that needs to be tracked and kept synchronous
@@ -792,7 +779,9 @@ void fl_key_embedder_responder_sync_modifiers_if_needed(
     FlKeyEmbedderResponder* responder,
     guint state,
     double event_time) {
-  responder->responder->SyncModifiersIfNeeded(state, event_time);
+  FlutterKeyCallbackGuard guard(nullptr);
+  responder->responder->SyncModifiersIfNeeded(state, event_time, guard);
+  guard.MarkSentSynthesizedEvent();
 }
 
 GHashTable* fl_key_embedder_responder_get_pressed_state(

@@ -1047,7 +1047,7 @@ TEST(FlKeyEmbedderResponderTest, IgnoreAbruptUpEvent) {
   EXPECT_EQ(record->event->physical, 0ull);
   EXPECT_EQ(record->event->logical, 0ull);
   EXPECT_STREQ(record->event->character, nullptr);
-  EXPECT_EQ(record->event->synthesized, false);
+  EXPECT_EQ(record->event->synthesized, true);
   EXPECT_EQ(record->callback, nullptr);
 
   clear_g_call_records();
@@ -1485,7 +1485,7 @@ TEST(FlKeyEmbedderResponderTest, SynthesizeForDesyncLockModeOnNonSelfEvents) {
   EXPECT_EQ(record->event->physical, 0ull);
   EXPECT_EQ(record->event->logical, 0ull);
   EXPECT_STREQ(record->event->character, nullptr);
-  EXPECT_EQ(record->event->synthesized, false);
+  EXPECT_EQ(record->event->synthesized, true);
   EXPECT_EQ(record->callback, nullptr);
 
   clear_g_call_records();

@@ -474,7 +474,6 @@ class NativeEventMacosCapsLock : public flutter::NativeEvent {
         .synthesized = true,
     };
     [self sendEvent:flutterEvent guard:guard];
-    guard.MarkSentSynthesizedEvent();
   }
   NSAssert(_lastModifierFlagsOfInterest == (event.modifierFlags & _modifierFlagOfInterestMask),
            @"The modifier flags are not properly updated: recorded 0x%lx, event with mask 0x%lx",
