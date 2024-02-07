@@ -92,13 +92,13 @@ uint64_t PhysicallyIndexed::EnsureLogicalKey(NativeEvent& native_event,
                                              bool force_update) {
   const uint64_t physical_key = native_event.physical_key();
   if (!force_update) {
-    auto found_entry = _physical_to_logical.find(physical_key);
-    if (found_entry != _physical_to_logical.end()) {
+    auto found_entry = physical_to_logical_.find(physical_key);
+    if (found_entry != physical_to_logical_.end()) {
       return found_entry->second;
     }
   }
   const uint64_t logical_key = native_event.logical_key();
-  _physical_to_logical[physical_key] = logical_key;
+  physical_to_logical_[physical_key] = logical_key;
   return logical_key;
 }
 
@@ -106,22 +106,22 @@ uint64_t LogicallyIndexed::EnsurePhysicalKey(NativeEvent& native_event,
                                              bool force_update) {
   const uint64_t logical_key = native_event.logical_key();
   if (!force_update) {
-    auto found_entry = _logical_to_physical.find(logical_key);
-    if (found_entry != _logical_to_physical.end()) {
+    auto found_entry = logical_to_physical_.find(logical_key);
+    if (found_entry != logical_to_physical_.end()) {
       return found_entry->second;
     }
   }
   const uint64_t physical_key = native_event.physical_key();
-  _logical_to_physical[logical_key] = physical_key;
+  logical_to_physical_[logical_key] = physical_key;
   return physical_key;
 }
 
 std::unordered_map<uint64_t, uint64_t> PressStateTracker::GetPressedState() {
   std::unordered_map<uint64_t, uint64_t> result;
-  for (auto [physical_key, pressed] : _pressed_keys) {
+  for (auto [physical_key, pressed] : pressed_keys_) {
     if (pressed) {
-      auto found_entry = _physical_to_logical.find(physical_key);
-      FML_DCHECK(found_entry != _physical_to_logical.end());
+      auto found_entry = physical_to_logical_.find(physical_key);
+      FML_DCHECK(found_entry != physical_to_logical_.end());
       result[physical_key] = found_entry->second;
     }
   }
@@ -171,7 +171,7 @@ std::vector<EventType> PressStateTracker::ModelTextKeyEvent(
     bool require_pressed_after) {
   std::vector<EventType> output;
   StateMap::iterator current =
-      _pressed_keys.try_emplace(physical_key, false).first;
+      pressed_keys_.try_emplace(physical_key, false).first;
 
   // Align with "require_pressed_before".
   if (require_pressed_before.has_value()) {
@@ -204,10 +204,10 @@ std::optional<EventType> PressStateTracker::EnsurePressed(
 
 std::unordered_map<uint64_t, uint64_t> ModifierStateTracker::GetPressedState() {
   std::unordered_map<uint64_t, uint64_t> result;
-  for (auto [logical_key, pressed] : _pressed_keys) {
+  for (auto [logical_key, pressed] : pressed_keys_) {
     if (pressed) {
-      auto found_entry = _logical_to_physical.find(logical_key);
-      FML_DCHECK(found_entry != _logical_to_physical.end());
+      auto found_entry = logical_to_physical_.find(logical_key);
+      FML_DCHECK(found_entry != logical_to_physical_.end());
       result[found_entry->second] = logical_key;
     }
   }
@@ -256,7 +256,7 @@ void ModifierStateTracker::ModelModifierState(
     bool require_pressed_after,
     bool synthesized) {
   StateMap::iterator current =
-      _pressed_keys.try_emplace(physical_key, false).first;
+      pressed_keys_.try_emplace(physical_key, false).first;
 
   auto maybe_event_type = EnsurePressed(current, require_pressed_after);
   if (maybe_event_type.has_value()) {
@@ -302,10 +302,10 @@ void LockStateTracker::RequireState(
 
 std::unordered_map<uint64_t, uint64_t> LockStateTracker::GetPressedState() {
   std::unordered_map<uint64_t, uint64_t> result;
-  for (auto [logical_key, lock_state] : _states) {
+  for (auto [logical_key, lock_state] : states_) {
     if (IsPressed(lock_state)) {
-      auto found_entry = _logical_to_physical.find(logical_key);
-      FML_DCHECK(found_entry != _logical_to_physical.end());
+      auto found_entry = logical_to_physical_.find(logical_key);
+      FML_DCHECK(found_entry != logical_to_physical_.end());
       result[found_entry->second] = logical_key;
     }
   }
@@ -318,7 +318,7 @@ std::vector<LockStateTracker::StateChange> LockStateTracker::ModelState(
     LockState require_after_cleanup) {
   std::vector<StateChange> output;
   StateMap::iterator current =
-      _states.try_emplace(logical_key, LockState::kReleasedOff).first;
+      states_.try_emplace(logical_key, LockState::kReleasedOff).first;
   if (require_primary_state.has_value()) {
     EnsureLockState(&output, current,
                     PreviousStateOf(require_primary_state.value()),

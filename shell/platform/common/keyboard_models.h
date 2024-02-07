@@ -79,7 +79,7 @@ class PhysicallyIndexed {
   uint64_t EnsureLogicalKey(NativeEvent& native_event,
                             bool force_update = false);
 
-  std::unordered_map<uint64_t, uint64_t> _physical_to_logical;
+  std::unordered_map<uint64_t, uint64_t> physical_to_logical_;
 };
 
 class LogicallyIndexed {
@@ -87,7 +87,7 @@ class LogicallyIndexed {
   uint64_t EnsurePhysicalKey(NativeEvent& native_event,
                              bool force_update = false);
 
-  std::unordered_map<uint64_t, uint64_t> _logical_to_physical;
+  std::unordered_map<uint64_t, uint64_t> logical_to_physical_;
 };
 
 // PressStateTracker handles keys that have two states, pressed or not, and that
@@ -112,7 +112,7 @@ class PressStateTracker : private PhysicallyIndexed {
       std::optional<bool> require_pressed_before,
       bool require_pressed_after);
 
-  StateMap _pressed_keys;
+  StateMap pressed_keys_;
 
   // Ensure key state requirement by optionally pushing an event to `output` and
   // changing the value of `current` accordingly.
@@ -143,7 +143,7 @@ class ModifierStateTracker : private LogicallyIndexed {
                           bool require_pressed_after,
                           bool synthesized);
 
-  StateMap _pressed_keys;
+  StateMap pressed_keys_;
 
   // Ensure key state requirement by optionally pushing an event to `output` and
   // changing the value of `current` accordingly.
@@ -175,7 +175,7 @@ class LockStateTracker : private LogicallyIndexed {
       std::optional<LockState> require_primary_state,
       LockState require_after_cleanup);
 
-  StateMap _states;
+  StateMap states_;
 
   // Ensure key state requirement by optionally pushing an event to `output` and
   // changing the value of `current` accordingly.
