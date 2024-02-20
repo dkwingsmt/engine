@@ -10,6 +10,20 @@ namespace flutter {
 
 namespace {
 
+constexpr uint64_t kPlaneMask = 0xFF00000000;
+constexpr uint64_t kValueMask = 0x00FFFFFFFF;
+constexpr uint64_t kUnprintablePlane = 0x0100000000;
+constexpr uint64_t kUnprintablePhysicalPlane = 0x0200000000;
+
+bool IsUnprintablePlane(uint64_t logical_key) {
+  return (logical_key & kPlaneMask) == kUnprintablePlane;
+}
+
+uint64_t FabricatePhysicalKey(uint64_t logical_key) {
+  FML_DCHECK(IsUnprintablePlane(logical_key));
+  return (kValueMask & logical_key) | kUnprintablePhysicalPlane;
+}
+
 bool IsPressed(LockState lock_state) {
   switch (lock_state) {
     case LockState::kReleasedOff:
@@ -22,7 +36,28 @@ bool IsPressed(LockState lock_state) {
   }
 }
 
-LockState PreviousStateOf(LockState target) {
+constexpr LockStateGroup kAllValidLockStates =
+    static_cast<LockStateGroup>(LockState::kReleasedOff) |
+    static_cast<LockStateGroup>(LockState::kPressedOn) |
+    static_cast<LockStateGroup>(LockState::kReleasedOn) |
+    static_cast<LockStateGroup>(LockState::kPressedOff);
+
+bool IsValid(LockStateGroup target) {
+  return (target & ~kAllValidLockStates) == 0 &&  //
+         (target != 0) &&                         //
+         (target != kAllValidLockStates);
+}
+
+template <typename T>
+void MaybePushBack(std::vector<T>* output, std::optional<T> event_type) {
+  if (event_type.has_value()) {
+    output->push_back(event_type.value());
+  }
+}
+
+}  // namespace
+
+LockState Previous(LockState target) {
   switch (target) {
     case LockState::kReleasedOff:
       return LockState::kPressedOff;
@@ -37,14 +72,27 @@ LockState PreviousStateOf(LockState target) {
   }
 }
 
-template <typename T>
-void MaybePushBack(std::vector<T>* output, std::optional<T> event_type) {
-  if (event_type.has_value()) {
-    output->push_back(event_type.value());
+LockState Next(LockState target) {
+  switch (target) {
+    case LockState::kReleasedOff:
+      return LockState::kPressedOn;
+    case LockState::kPressedOn:
+      return LockState::kReleasedOn;
+    case LockState::kReleasedOn:
+      return LockState::kPressedOff;
+    case LockState::kPressedOff:
+      return LockState::kReleasedOff;
+    default:
+      FML_UNREACHABLE();
   }
 }
 
-}  // namespace
+LockStateGroup Next(LockStateGroup target) {
+  // Algorithm:
+  //   For      0000abcd
+  //   Return   0000bcda
+  return (target & 0x08) >> 3 | (target & 0x07) << 1;
+}
 
 FlutterKeyEventType ToEmbedderApiType(EventType type) {
   switch (type) {
@@ -250,11 +298,10 @@ void ModifierStateTracker::RequireModifierKeyState(
   }
 }
 
-void ModifierStateTracker::ModelModifierState(
-    std::vector<StateChange>* output,
-    uint64_t physical_key,
-    bool require_pressed_after,
-    bool synthesized) {
+void ModifierStateTracker::ModelModifierState(std::vector<StateChange>* output,
+                                              uint64_t physical_key,
+                                              bool require_pressed_after,
+                                              bool synthesized) {
   StateMap::iterator current =
       pressed_keys_.try_emplace(physical_key, false).first;
 
@@ -277,25 +324,22 @@ std::optional<EventType> ModifierStateTracker::EnsurePressed(
   return require_pressed ? EventType::kDown : EventType::kUp;
 }
 
-static constexpr uint64_t kPlaneMask = 0xFF00000000;
-static constexpr uint64_t kValueMask = 0x00FFFFFFFF;
-static constexpr uint64_t kUnprintablePlane = 0x0100000000;
-static constexpr uint64_t kUnprintablePhysicalPlane = 0x0200000000;
-
-static bool IsUnprintablePlane(uint64_t logical_key) {
-  return (logical_key & kPlaneMask) == kUnprintablePlane;
-}
-
-void ModifierPairStateTracker::Register(uint64_t flag, uint64_t logical_key_1, uint64_t logical_key_2) {
-  bool new_entry = flag_to_logical_keys_.try_emplace(flag, logical_key_1, logical_key_2).second;
+void ModifierPairStateTracker::Register(uint64_t flag,
+                                        uint64_t logical_key_1,
+                                        uint64_t logical_key_2) {
+  bool new_entry =
+      flag_to_logical_keys_.try_emplace(flag, logical_key_1, logical_key_2)
+          .second;
+  // The logical keys are required to be in a specific plane in order to be
+  // safely fabricated into a physical key in case a down event must be
+  // synthesized before a real event is encountered.
   FML_DCHECK(IsUnprintablePlane(logical_key_1))
       << std::hex << "Logical key is not an unprintable 0x" << logical_key_1;
   FML_DCHECK(IsUnprintablePlane(logical_key_2))
       << std::hex << "Logical key is not an unprintable 0x" << logical_key_2;
-  FML_DCHECK(new_entry)
-      << std::hex << "Duplicate entry: flag 0x" << flag  //
-      << " logical key 1 0x" << logical_key_1            //
-      << " logical key 2 0x" << logical_key_2;
+  FML_DCHECK(new_entry) << std::hex << "Duplicate entry: flag 0x" << flag  //
+                        << " logical key 1 0x" << logical_key_1            //
+                        << " logical key 2 0x" << logical_key_2;
   (void)(new_entry);
 }
 
@@ -416,27 +460,59 @@ std::optional<StateChange> ModifierPairStateTracker::EnsurePressed(
   };
 }
 
-uint64_t ModifierPairStateTracker::FabricatePhysicalKey(uint64_t logical_key) {
-  FML_DCHECK(IsUnprintablePlane(logical_key));
-  return (kValueMask & logical_key) | kUnprintablePhysicalPlane;
-}
-
 void LockStateTracker::RequireState(
     std::vector<FlutterKeyEvent>* output,
     NativeEvent& source_event,
-    std::optional<LockState> require_primary_state,
-    LockState require_after_cleanup) {
+    std::optional<LockStateGroup> require_primary_state,
+    LockStateGroup require_after_cleanup) {
   const uint64_t logical_key = source_event.logical_key();
   const double timestamp = source_event.timestamp();
-  for (StateChange state_change :
-       ModelState(logical_key, require_primary_state, require_after_cleanup)) {
+
+  std::vector<StateChange> state_changes;
+  StateMap::iterator current =
+      states_.try_emplace(logical_key, LockState::kReleasedOff).first;
+  if (require_primary_state.has_value()) {
+    EnsureLockState(&state_changes, current, require_primary_state.value(),
+                    /*synthesized=*/true);
+    if (!state_changes.empty()) {
+      state_changes.back().synthesized = false;
+    }
+  }
+  EnsureLockState(&state_changes, current, require_after_cleanup,
+                  /*synthesized=*/true);
+
+  for (StateChange state_change : state_changes) {
     const uint64_t physical_key = EnsurePhysicalKey(
-        source_event, /*force_update=*/state_change.change == EventType::kDown);
+        source_event,
+        /*force_update=*/state_change.change == EventType::kDown);
     output->push_back(FlutterKeyEvent{
         .struct_size = sizeof(FlutterKeyEvent),
         .timestamp = timestamp,
         .type = ToEmbedderApiType(state_change.change),
         .physical = physical_key,
+        .logical = logical_key,
+        .character = nullptr,
+        .synthesized = state_change.synthesized,
+    });
+  }
+}
+
+void LockStateTracker::RequireState(std::vector<FlutterKeyEvent>* output,
+                                    uint64_t logical_key,
+                                    double timestamp,
+                                    LockStateGroup require_state) {
+  std::vector<StateChange> state_changes;
+  StateMap::iterator current =
+      states_.try_emplace(logical_key, LockState::kReleasedOff).first;
+  EnsureLockState(&state_changes, current, require_state,
+                  /*synthesized=*/true);
+
+  for (StateChange state_change : state_changes) {
+    output->push_back(FlutterKeyEvent{
+        .struct_size = sizeof(FlutterKeyEvent),
+        .timestamp = timestamp,
+        .type = ToEmbedderApiType(state_change.change),
+        .physical = PhysicalKeyFromRecord(logical_key),
         .logical = logical_key,
         .character = nullptr,
         .synthesized = state_change.synthesized,
@@ -456,36 +532,34 @@ std::unordered_map<uint64_t, uint64_t> LockStateTracker::GetPressedState() {
   return result;
 }
 
-std::vector<StateChange> LockStateTracker::ModelState(
-    uint64_t logical_key,
-    std::optional<LockState> require_primary_state,
-    LockState require_after_cleanup) {
-  std::vector<StateChange> output;
+LockState LockStateTracker::GetState(uint64_t logical_key) {
   StateMap::iterator current =
       states_.try_emplace(logical_key, LockState::kReleasedOff).first;
-  if (require_primary_state.has_value()) {
-    EnsureLockState(&output, current,
-                    PreviousStateOf(require_primary_state.value()),
-                    /*synthesized=*/true);
-    EnsureLockState(&output, current, require_primary_state.value(),
-                    /*synthesized=*/false);
-  }
-  EnsureLockState(&output, current, require_after_cleanup,
-                  /*synthesized=*/true);
-  return output;
+  return current->second;
 }
 
 void LockStateTracker::EnsureLockState(std::vector<StateChange>* output,
                                        StateMap::iterator& current,
-                                       LockState required_state,
+                                       LockStateGroup required_state,
                                        bool synthesized) {
-  while (current->second != required_state) {
+  FML_DCHECK(IsValid(required_state));
+  while ((Exactly(current->second) & required_state) == 0) {
     EventType change = ProgressState(current);
     output->push_back({
         .change = change,
         .synthesized = synthesized,
     });
   }
+}
+
+uint64_t LockStateTracker::PhysicalKeyFromRecord(uint64_t logical_key) {
+  auto found = logical_to_physical_.find(logical_key);
+  if (found == logical_to_physical_.end()) {
+    found = logical_to_physical_
+                .try_emplace(logical_key, FabricatePhysicalKey(logical_key))
+                .first;
+  }
+  return found->second;
 }
 
 EventType LockStateTracker::ProgressState(StateMap::iterator& current) {

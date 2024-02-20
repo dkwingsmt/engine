@@ -26,7 +26,30 @@ struct StateChange {
   bool synthesized;
 };
 
-enum class LockState { kReleasedOff, kPressedOn, kReleasedOn, kPressedOff };
+typedef uint8_t LockStateGroup;
+enum class LockState : LockStateGroup {
+  kReleasedOff = 0x1,
+  kPressedOn = 0x2,
+  kReleasedOn = 0x4,
+  kPressedOff = 0x8
+};
+
+constexpr LockStateGroup Exactly(LockState a) {
+  return static_cast<LockStateGroup>(a);
+}
+
+constexpr LockStateGroup AnyOf(LockState a, LockState b) {
+  return static_cast<LockStateGroup>(a) | static_cast<LockStateGroup>(b);
+}
+
+constexpr LockStateGroup AnyOf(LockState a, LockState b, LockState c) {
+  return static_cast<LockStateGroup>(a) | static_cast<LockStateGroup>(b) |
+         static_cast<LockStateGroup>(c);
+}
+
+LockState Previous(LockState target);
+LockState Next(LockState target);
+LockStateGroup Next(LockStateGroup target);
 
 FlutterKeyEventType ToEmbedderApiType(EventType type);
 
@@ -159,17 +182,15 @@ class ModifierPairStateTracker : private LogicallyIndexed {
 
   std::unordered_map<uint64_t, uint64_t> GetPressedState();
 
-  void RequireEventState(
-      std::vector<FlutterKeyEvent>* output,
-      NativeEvent& source_event,
-      std::optional<bool> require_pressed_before,
-      std::optional<bool> require_pressed_after);
+  void RequireEventState(std::vector<FlutterKeyEvent>* output,
+                         NativeEvent& source_event,
+                         std::optional<bool> require_pressed_before,
+                         std::optional<bool> require_pressed_after);
 
-  void RequireFlagState(
-      std::vector<FlutterKeyEvent>* output,
-      uint64_t flag,
-      double timestamp,
-      bool require_pressed);
+  void RequireFlagState(std::vector<FlutterKeyEvent>* output,
+                        uint64_t flag,
+                        double timestamp,
+                        bool require_pressed);
 
  private:
   typedef std::pair<uint64_t, uint64_t> LogicalKeyPair;
@@ -191,10 +212,7 @@ class ModifierPairStateTracker : private LogicallyIndexed {
   static std::optional<StateChange> EnsurePressed(StateMap::iterator current,
                                                   bool require_pressed,
                                                   bool synthesized);
-
-  static uint64_t FabricatePhysicalKey(uint64_t logical_key);
 };
-
 
 // LockStateTracker handles keys that have four states, pressed or not, lock on
 // or off. These keys must be uniquely indexed by their logical keys.
@@ -202,18 +220,22 @@ class LockStateTracker : private LogicallyIndexed {
  public:
   void RequireState(std::vector<FlutterKeyEvent>* output,
                     NativeEvent& source_event,
-                    std::optional<LockState> require_primary_state,
-                    LockState require_after_cleanup);
+                    std::optional<LockStateGroup> require_primary_state,
+                    LockStateGroup require_after_cleanup);
+
+  void RequireState(std::vector<FlutterKeyEvent>* output,
+                    uint64_t logical_key,
+                    double timestamp,
+                    LockStateGroup require_state);
 
   std::unordered_map<uint64_t, uint64_t> GetPressedState();
+
+  LockState GetState(uint64_t logical_key);
 
  private:
   typedef std::unordered_map<uint64_t, LockState> StateMap;
 
-  std::vector<StateChange> ModelState(
-      uint64_t logical_key,
-      std::optional<LockState> require_primary_state,
-      LockState require_after_cleanup);
+  uint64_t PhysicalKeyFromRecord(uint64_t logical_key);
 
   StateMap states_;
 
@@ -221,7 +243,7 @@ class LockStateTracker : private LogicallyIndexed {
   // changing the value of `current` accordingly.
   static void EnsureLockState(std::vector<StateChange>* output,
                               StateMap::iterator& current,
-                              LockState required_state,
+                              LockStateGroup required_state,
                               bool synthesized);
 
   static EventType ProgressState(StateMap::iterator& current);
