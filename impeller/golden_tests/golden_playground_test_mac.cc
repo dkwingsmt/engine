@@ -55,53 +55,22 @@ const std::unique_ptr<PlaygroundImpl>& GetSharedVulkanPlayground(
 }
 }  // namespace
 
+#define IMP_AIKSTEST(name)                         \
+  "impeller_Play_AiksTest_" #name "_Metal",        \
+      "impeller_Play_AiksTest_" #name "_OpenGLES", \
+      "impeller_Play_AiksTest_" #name "_Vulkan"
+
 // If you add a new playground test to the aiks unittests and you do not want it
 // to also be a golden test, then add the test name here.
 static const std::vector<std::string> kSkipTests = {
-    "impeller_Play_AiksTest_CanDrawPaintMultipleTimesInteractive_Metal",
-    "impeller_Play_AiksTest_CanDrawPaintMultipleTimesInteractive_Vulkan",
-    "impeller_Play_AiksTest_CanRenderLinearGradientManyColorsUnevenStops_Metal",
-    "impeller_Play_AiksTest_CanRenderLinearGradientManyColorsUnevenStops_"
-    "Vulkan",
-    "impeller_Play_AiksTest_CanRenderRadialGradient_Metal",
-    "impeller_Play_AiksTest_CanRenderRadialGradient_Vulkan",
-    "impeller_Play_AiksTest_CanRenderRadialGradientManyColors_Metal",
-    "impeller_Play_AiksTest_CanRenderRadialGradientManyColors_Vulkan",
-    "impeller_Play_AiksTest_CanRenderBackdropBlurInteractive_Metal",
-    "impeller_Play_AiksTest_CanRenderBackdropBlurInteractive_Vulkan",
-    "impeller_Play_AiksTest_ClippedBlurFilterRendersCorrectlyInteractive_Metal",
-    "impeller_Play_AiksTest_ClippedBlurFilterRendersCorrectlyInteractive_"
-    "Vulkan",
-    "impeller_Play_AiksTest_CoverageOriginShouldBeAccountedForInSubpasses_"
-    "Metal",
-    "impeller_Play_AiksTest_CoverageOriginShouldBeAccountedForInSubpasses_"
-    "Vulkan",
-    "impeller_Play_AiksTest_GaussianBlurRotatedAndClippedInteractive_Metal",
-    "impeller_Play_AiksTest_GaussianBlurRotatedAndClippedInteractive_Vulkan",
-    "impeller_Play_AiksTest_GradientStrokesRenderCorrectly_Metal",
-    "impeller_Play_AiksTest_GradientStrokesRenderCorrectly_Vulkan",
-    "impeller_Play_AiksTest_ColorWheel_Metal",
-    "impeller_Play_AiksTest_ColorWheel_Vulkan",
-    "impeller_Play_AiksTest_SceneColorSource_Metal",
-    "impeller_Play_AiksTest_SceneColorSource_Vulkan",
-    "impeller_Play_AiksTest_SolidStrokesRenderCorrectly_Metal",
-    "impeller_Play_AiksTest_SolidStrokesRenderCorrectly_Vulkan",
-    "impeller_Play_AiksTest_TextFrameSubpixelAlignment_Metal",
-    "impeller_Play_AiksTest_TextFrameSubpixelAlignment_Vulkan",
     // TextRotated is flakey and we can't seem to get it to stabilize on Skia
     // Gold.
-    "impeller_Play_AiksTest_TextRotated_Metal",
-    "impeller_Play_AiksTest_TextRotated_Vulkan",
+    IMP_AIKSTEST(TextRotated),
     // Runtime stage based tests get confused with a Metal context.
     "impeller_Play_AiksTest_CanRenderClippedRuntimeEffects_Vulkan",
-    "impeller_Play_AiksTest_CaptureContext_Metal",
-    "impeller_Play_AiksTest_CaptureContext_Vulkan",
 };
 
-static const std::vector<std::string> kVulkanDenyValidationTests = {
-    // TODO(https://github.com/flutter/flutter/issues/142080): remove this.
-    "impeller_Play_AiksTest_EmptySaveLayerRendersWithClear_Vulkan",
-};
+static const std::vector<std::string> kVulkanDenyValidationTests = {};
 
 namespace {
 std::string GetTestName() {
@@ -123,14 +92,19 @@ std::string GetGoldenFilename() {
 
 bool SaveScreenshot(std::unique_ptr<testing::Screenshot> screenshot) {
   if (!screenshot || !screenshot->GetBytes()) {
+    FML_LOG(ERROR) << "Failed to collect screenshot for test " << GetTestName();
     return false;
   }
   std::string test_name = GetTestName();
   std::string filename = GetGoldenFilename();
   testing::GoldenDigest::Instance()->AddImage(
       test_name, filename, screenshot->GetWidth(), screenshot->GetHeight());
-  return screenshot->WriteToPNG(
-      testing::WorkingDirectory::Instance()->GetFilenamePath(filename));
+  if (!screenshot->WriteToPNG(
+          testing::WorkingDirectory::Instance()->GetFilenamePath(filename))) {
+    FML_LOG(ERROR) << "Failed to write screenshot to " << filename;
+    return false;
+  }
+  return true;
 }
 
 bool ShouldTestHaveVulkanValidations() {
@@ -143,6 +117,7 @@ bool ShouldTestHaveVulkanValidations() {
 
 struct GoldenPlaygroundTest::GoldenPlaygroundTestImpl {
   std::unique_ptr<PlaygroundImpl> test_vulkan_playground;
+  std::unique_ptr<PlaygroundImpl> test_opengl_playground;
   std::unique_ptr<testing::Screenshotter> screenshotter;
   ISize window_size = ISize{1024, 768};
 };
@@ -172,13 +147,29 @@ void GoldenPlaygroundTest::SetUp() {
   std::filesystem::path icd_path = target_path / "vk_swiftshader_icd.json";
   setenv("VK_ICD_FILENAMES", icd_path.c_str(), 1);
 
-  if (GetBackend() != PlaygroundBackend::kMetal &&
-      GetBackend() != PlaygroundBackend::kVulkan) {
-    GTEST_SKIP_("GoldenPlaygroundTest doesn't support this backend type.");
-    return;
-  }
-
   bool enable_vulkan_validations = ShouldTestHaveVulkanValidations();
+  switch (GetParam()) {
+    case PlaygroundBackend::kMetal:
+      pimpl_->screenshotter = std::make_unique<testing::MetalScreenshotter>();
+      break;
+    case PlaygroundBackend::kVulkan: {
+      const std::unique_ptr<PlaygroundImpl>& playground =
+          GetSharedVulkanPlayground(enable_vulkan_validations);
+      pimpl_->screenshotter =
+          std::make_unique<testing::VulkanScreenshotter>(playground);
+      break;
+    }
+    case PlaygroundBackend::kOpenGLES: {
+      FML_CHECK(::glfwInit() == GLFW_TRUE);
+      PlaygroundSwitches playground_switches;
+      playground_switches.use_angle = true;
+      pimpl_->test_opengl_playground = PlaygroundImpl::Create(
+          PlaygroundBackend::kOpenGLES, playground_switches);
+      pimpl_->screenshotter = std::make_unique<testing::VulkanScreenshotter>(
+          pimpl_->test_opengl_playground);
+      break;
+    }
+  }
   if (GetParam() == PlaygroundBackend::kMetal) {
     pimpl_->screenshotter = std::make_unique<testing::MetalScreenshotter>();
   } else if (GetParam() == PlaygroundBackend::kVulkan) {
@@ -231,6 +222,12 @@ bool GoldenPlaygroundTest::OpenPlaygroundHere(
   return SaveScreenshot(std::move(screenshot));
 }
 
+bool GoldenPlaygroundTest::ImGuiBegin(const char* name,
+                                      bool* p_open,
+                                      ImGuiWindowFlags flags) {
+  return false;
+}
+
 std::shared_ptr<Texture> GoldenPlaygroundTest::CreateTextureForFixture(
     const char* fixture_name,
     bool enable_mipmapping) const {
@@ -272,8 +269,8 @@ std::shared_ptr<Context> GoldenPlaygroundTest::MakeContext() const {
         pimpl_->test_vulkan_playground);
     return pimpl_->test_vulkan_playground->GetContext();
   } else {
-    FML_CHECK(false);
-    return nullptr;
+    /// On OpenGL we create a context for each test.
+    return GetContext();
   }
 }
 

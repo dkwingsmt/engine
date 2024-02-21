@@ -12,7 +12,7 @@
       "uses_late_zs_update": false,
       "variants": {
         "Main": {
-          "fp16_arithmetic": 0,
+          "fp16_arithmetic": 2,
           "has_stack_spilling": false,
           "performance": {
             "longest_path_bound_pipelines": [
@@ -20,8 +20,8 @@
               "arith_fma"
             ],
             "longest_path_cycles": [
-              0.625,
-              0.625,
+              0.578125,
+              0.578125,
               0.21875,
               0.125,
               0.0,
@@ -42,10 +42,10 @@
               "arith_fma"
             ],
             "shortest_path_cycles": [
-              0.625,
-              0.625,
-              0.234375,
-              0.125,
+              0.53125,
+              0.53125,
+              0.203125,
+              0.0625,
               0.0,
               0.25,
               0.25
@@ -55,8 +55,8 @@
               "arith_fma"
             ],
             "total_cycles": [
-              0.625,
-              0.625,
+              0.578125,
+              0.578125,
               0.296875,
               0.125,
               0.0,
@@ -66,8 +66,8 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 10,
-          "work_registers_used": 24
+          "uniform_registers_used": 12,
+          "work_registers_used": 25
         }
       }
     }
@@ -773,9 +773,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -792,9 +792,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -803,9 +803,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -813,7 +813,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 28,
+          "uniform_registers_used": 24,
           "work_registers_used": 32
         }
       }
@@ -1423,7 +1423,7 @@
       "uses_late_zs_update": false,
       "variants": {
         "Main": {
-          "fp16_arithmetic": 0,
+          "fp16_arithmetic": 2,
           "has_stack_spilling": false,
           "performance": {
             "longest_path_bound_pipelines": [
@@ -1431,8 +1431,8 @@
               "arith_fma"
             ],
             "longest_path_cycles": [
-              0.625,
-              0.625,
+              0.578125,
+              0.578125,
               0.265625,
               0.125,
               0.0,
@@ -1453,10 +1453,10 @@
               "arith_fma"
             ],
             "shortest_path_cycles": [
-              0.625,
-              0.625,
-              0.25,
-              0.125,
+              0.53125,
+              0.53125,
+              0.21875,
+              0.0625,
               0.0,
               0.25,
               0.25
@@ -1466,8 +1466,8 @@
               "arith_fma"
             ],
             "total_cycles": [
-              0.625,
-              0.625,
+              0.578125,
+              0.578125,
               0.34375,
               0.125,
               0.0,
@@ -1477,8 +1477,8 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 12,
-          "work_registers_used": 22
+          "uniform_registers_used": 14,
+          "work_registers_used": 23
         }
       }
     },
@@ -1495,7 +1495,7 @@
               "arithmetic"
             ],
             "longest_path_cycles": [
-              3.630000114440918,
+              4.289999961853027,
               2.0,
               2.0
             ],
@@ -1516,7 +1516,7 @@
               "arithmetic"
             ],
             "total_cycles": [
-              4.0,
+              4.666666507720947,
               2.0,
               2.0
             ]
@@ -2583,7 +2583,7 @@
     "Mali-G78": {
       "core": "Mali-G78",
       "filename": "flutter/impeller/entity/gles/clip.vert.gles",
-      "has_uniform_computation": false,
+      "has_uniform_computation": true,
       "type": "Vertex",
       "variants": {
         "Position": {
@@ -2594,8 +2594,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -2613,8 +2613,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -2624,8 +2624,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -2634,7 +2634,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 32
         }
       }
@@ -2679,7 +2679,7 @@
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 5,
+          "uniform_registers_used": 6,
           "work_registers_used": 2
         }
       }
@@ -3611,9 +3611,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.515625,
-              0.515625,
-              0.140625,
+              0.359375,
+              0.359375,
+              0.09375,
               0.0,
               4.0,
               0.0
@@ -3630,8 +3630,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.484375,
-              0.484375,
+              0.296875,
+              0.296875,
               0.03125,
               0.0,
               4.0,
@@ -3641,9 +3641,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.737500011920929,
-              0.737500011920929,
-              0.15625,
+              0.515625,
+              0.515625,
+              0.109375,
               0.0,
               4.0,
               0.0
@@ -3651,7 +3651,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 48,
+          "uniform_registers_used": 36,
           "work_registers_used": 32
         },
         "Varying": {
@@ -3720,7 +3720,7 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              7.260000228881836,
+              6.599999904632568,
               8.0,
               0.0
             ],
@@ -3733,7 +3733,7 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              6.269999980926514,
+              5.610000133514404,
               8.0,
               0.0
             ],
@@ -3741,13 +3741,13 @@
               "arithmetic"
             ],
             "total_cycles": [
-              9.333333015441895,
+              8.666666984558105,
               8.0,
               0.0
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 13,
+          "uniform_registers_used": 11,
           "work_registers_used": 3
         }
       }
@@ -3876,7 +3876,7 @@
     "Mali-G78": {
       "core": "Mali-G78",
       "filename": "flutter/impeller/entity/gles/gradient_fill.vert.gles",
-      "has_uniform_computation": false,
+      "has_uniform_computation": true,
       "type": "Vertex",
       "variants": {
         "Position": {
@@ -3887,8 +3887,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -3906,8 +3906,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -3917,8 +3917,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -3927,7 +3927,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 30,
+          "uniform_registers_used": 28,
           "work_registers_used": 32
         },
         "Varying": {
@@ -4023,8 +4023,8 @@
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 8,
-          "work_registers_used": 2
+          "uniform_registers_used": 9,
+          "work_registers_used": 3
         }
       }
     }
@@ -5062,8 +5062,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5081,8 +5081,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5092,8 +5092,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5102,7 +5102,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 22,
+          "uniform_registers_used": 20,
           "work_registers_used": 32
         },
         "Varying": {
@@ -5199,7 +5199,7 @@
           },
           "thread_occupancy": 100,
           "uniform_registers_used": 6,
-          "work_registers_used": 2
+          "work_registers_used": 3
         }
       }
     }
@@ -5208,7 +5208,7 @@
     "Mali-G78": {
       "core": "Mali-G78",
       "filename": "flutter/impeller/entity/gles/position_color.vert.gles",
-      "has_uniform_computation": false,
+      "has_uniform_computation": true,
       "type": "Vertex",
       "variants": {
         "Position": {
@@ -5219,8 +5219,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5238,8 +5238,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5249,8 +5249,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5259,7 +5259,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 32
         },
         "Varying": {
@@ -5310,7 +5310,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 8,
+          "uniform_registers_used": 10,
           "work_registers_used": 9
         }
       }
@@ -5355,7 +5355,7 @@
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 5,
+          "uniform_registers_used": 6,
           "work_registers_used": 2
         }
       }
@@ -5600,7 +5600,7 @@
     "Mali-G78": {
       "core": "Mali-G78",
       "filename": "flutter/impeller/entity/gles/rrect_blur.vert.gles",
-      "has_uniform_computation": false,
+      "has_uniform_computation": true,
       "type": "Vertex",
       "variants": {
         "Position": {
@@ -5611,8 +5611,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5630,8 +5630,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5641,8 +5641,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5651,7 +5651,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 32
         },
         "Varying": {
@@ -5702,7 +5702,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 8,
+          "uniform_registers_used": 10,
           "work_registers_used": 7
         }
       }
@@ -5747,7 +5747,7 @@
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 5,
+          "uniform_registers_used": 6,
           "work_registers_used": 2
         }
       }
@@ -5757,7 +5757,7 @@
     "Mali-G78": {
       "core": "Mali-G78",
       "filename": "flutter/impeller/entity/gles/runtime_effect.vert.gles",
-      "has_uniform_computation": false,
+      "has_uniform_computation": true,
       "type": "Vertex",
       "variants": {
         "Position": {
@@ -5768,8 +5768,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5787,8 +5787,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5798,8 +5798,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -5808,7 +5808,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 32
         },
         "Varying": {
@@ -5859,7 +5859,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 8,
+          "uniform_registers_used": 10,
           "work_registers_used": 7
         }
       }
@@ -5904,7 +5904,7 @@
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 5,
+          "uniform_registers_used": 6,
           "work_registers_used": 2
         }
       }
@@ -6031,7 +6031,7 @@
     "Mali-G78": {
       "core": "Mali-G78",
       "filename": "flutter/impeller/entity/gles/solid_fill.vert.gles",
-      "has_uniform_computation": false,
+      "has_uniform_computation": true,
       "type": "Vertex",
       "variants": {
         "Position": {
@@ -6042,8 +6042,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -6061,8 +6061,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -6072,8 +6072,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -6082,7 +6082,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 24,
+          "uniform_registers_used": 22,
           "work_registers_used": 32
         },
         "Varying": {
@@ -6133,7 +6133,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 12,
+          "uniform_registers_used": 14,
           "work_registers_used": 7
         }
       }
@@ -6178,7 +6178,7 @@
             ]
           },
           "thread_occupancy": 100,
-          "uniform_registers_used": 6,
+          "uniform_registers_used": 7,
           "work_registers_used": 2
         }
       }
@@ -6713,8 +6713,8 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -6732,8 +6732,8 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -6743,8 +6743,8 @@
               "load_store"
             ],
             "total_cycles": [
-              0.140625,
-              0.140625,
+              0.109375,
+              0.109375,
               0.0,
               0.0,
               2.0,
@@ -6753,7 +6753,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 22,
+          "uniform_registers_used": 20,
           "work_registers_used": 32
         },
         "Varying": {
@@ -6804,7 +6804,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 10,
+          "uniform_registers_used": 12,
           "work_registers_used": 8
         }
       }
@@ -6850,7 +6850,7 @@
           },
           "thread_occupancy": 100,
           "uniform_registers_used": 6,
-          "work_registers_used": 2
+          "work_registers_used": 3
         }
       }
     }
@@ -7797,9 +7797,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.5,
-              0.5,
-              0.140625,
+              0.34375,
+              0.34375,
+              0.125,
               0.0,
               4.0,
               0.0
@@ -7816,9 +7816,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.46875,
-              0.46875,
-              0.03125,
+              0.25,
+              0.25,
+              0.046875,
               0.0,
               4.0,
               0.0
@@ -7827,9 +7827,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.71875,
-              0.71875,
-              0.15625,
+              0.5,
+              0.5,
+              0.140625,
               0.0,
               4.0,
               0.0
@@ -7837,7 +7837,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 56,
+          "uniform_registers_used": 44,
           "work_registers_used": 32
         },
         "Varying": {
@@ -7888,7 +7888,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 48,
+          "uniform_registers_used": 36,
           "work_registers_used": 13
         }
       }
@@ -7979,9 +7979,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -7998,9 +7998,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -8009,9 +8009,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -8019,7 +8019,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 44,
+          "uniform_registers_used": 40,
           "work_registers_used": 32
         },
         "Varying": {
@@ -8070,7 +8070,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 36,
+          "uniform_registers_used": 34,
           "work_registers_used": 11
         }
       }
@@ -8880,9 +8880,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -8899,9 +8899,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -8910,9 +8910,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -8920,7 +8920,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 30,
+          "uniform_registers_used": 24,
           "work_registers_used": 32
         },
         "Varying": {
@@ -8971,7 +8971,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 22,
+          "uniform_registers_used": 20,
           "work_registers_used": 10
         }
       }
@@ -8992,9 +8992,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9011,9 +9011,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9022,9 +9022,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9032,7 +9032,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 28,
+          "uniform_registers_used": 24,
           "work_registers_used": 32
         },
         "Varying": {
@@ -9083,7 +9083,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 9
         }
       }
@@ -9320,9 +9320,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9339,9 +9339,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9350,9 +9350,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9360,7 +9360,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 28,
+          "uniform_registers_used": 24,
           "work_registers_used": 32
         },
         "Varying": {
@@ -9411,7 +9411,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 7
         }
       }
@@ -9432,9 +9432,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9451,9 +9451,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9462,9 +9462,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9472,7 +9472,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 28,
+          "uniform_registers_used": 24,
           "work_registers_used": 32
         },
         "Varying": {
@@ -9523,7 +9523,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 20,
+          "uniform_registers_used": 18,
           "work_registers_used": 7
         }
       }
@@ -9614,9 +9614,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9633,9 +9633,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9644,9 +9644,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -9654,7 +9654,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 32,
+          "uniform_registers_used": 28,
           "work_registers_used": 32
         },
         "Varying": {
@@ -9705,7 +9705,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 24,
+          "uniform_registers_used": 22,
           "work_registers_used": 7
         }
       }
@@ -10125,9 +10125,9 @@
               "load_store"
             ],
             "longest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -10144,9 +10144,9 @@
               "load_store"
             ],
             "shortest_path_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -10155,9 +10155,9 @@
               "load_store"
             ],
             "total_cycles": [
-              0.125,
-              0.125,
-              0.0,
+              0.09375,
+              0.09375,
+              0.015625,
               0.0,
               2.0,
               0.0
@@ -10165,7 +10165,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 30,
+          "uniform_registers_used": 24,
           "work_registers_used": 32
         },
         "Varying": {
@@ -10216,7 +10216,7 @@
           },
           "stack_spill_bytes": 0,
           "thread_occupancy": 100,
-          "uniform_registers_used": 22,
+          "uniform_registers_used": 20,
           "work_registers_used": 10
         }
       }

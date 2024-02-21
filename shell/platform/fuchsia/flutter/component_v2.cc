@@ -259,8 +259,13 @@ ComponentV2::ComponentV2(
   fdio_service_connect_at(directory_ptr_.channel().get(), "svc",
                           request.release());
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
   auto composed_service_dir = std::make_unique<vfs::ComposedServiceDir>();
   composed_service_dir->set_fallback(std::move(flutter_public_dir));
+
+#pragma clang diagnostic pop
 
   // Clone and check if client is servicing the directory.
   directory_ptr_->Clone(fuchsia::io::OpenFlags::DESCRIBE |
@@ -409,18 +414,9 @@ ComponentV2::ComponentV2(
       return MakeFileMapping("/pkg/data/vm_snapshot_data.bin",
                              false /* executable */);
     };
-    settings_.vm_snapshot_instr = []() {
-      return MakeFileMapping("/pkg/data/vm_snapshot_instructions.bin",
-                             true /* executable */);
-    };
-
     settings_.isolate_snapshot_data = []() {
       return MakeFileMapping("/pkg/data/isolate_core_snapshot_data.bin",
                              false /* executable */);
-    };
-    settings_.isolate_snapshot_instr = [] {
-      return MakeFileMapping("/pkg/data/isolate_core_snapshot_instructions.bin",
-                             true /* executable */);
     };
   }
 
@@ -486,10 +482,6 @@ ComponentV2::ComponentV2(
   };
 
   settings_.dart_flags = {};
-
-  // Run in unsound null safety mode as some packages used in Integration
-  // testing have not been migrated yet.
-  settings_.dart_flags.push_back("--no-sound-null-safety");
 
   // Don't collect CPU samples from Dart VM C++ code.
   settings_.dart_flags.push_back("--no_profile_vm");

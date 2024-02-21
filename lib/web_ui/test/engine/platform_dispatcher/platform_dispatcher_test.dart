@@ -10,14 +10,28 @@ import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
 import 'package:ui/ui.dart' as ui;
 
+import '../../common/test_initialization.dart';
+
 void main() {
   internalBootstrapBrowserTest(() => testMain);
 }
 
 void testMain() {
-  ensureFlutterViewEmbedderInitialized();
+  setUpAll(() async {
+    await bootstrapAndRunApp(withImplicitView: true);
+  });
 
   group('PlatformDispatcher', () {
+    late EnginePlatformDispatcher dispatcher;
+
+    setUp(() {
+      dispatcher = EnginePlatformDispatcher();
+    });
+
+    tearDown(() {
+      dispatcher.dispose();
+    });
+
     test('reports at least one display', () {
       expect(ui.PlatformDispatcher.instance.displays.length, greaterThan(0));
     });
@@ -26,15 +40,16 @@ void testMain() {
       final MockHighContrastSupport mockHighContrast =
           MockHighContrastSupport();
       HighContrastSupport.instance = mockHighContrast;
-      final EnginePlatformDispatcher engineDispatcher =
+
+      final EnginePlatformDispatcher dispatcher =
           EnginePlatformDispatcher();
 
-      expect(engineDispatcher.accessibilityFeatures.highContrast, isTrue);
+      expect(dispatcher.accessibilityFeatures.highContrast, isTrue);
       mockHighContrast.isEnabled = false;
       mockHighContrast.invokeListeners(mockHighContrast.isEnabled);
-      expect(engineDispatcher.accessibilityFeatures.highContrast, isFalse);
+      expect(dispatcher.accessibilityFeatures.highContrast, isFalse);
 
-      engineDispatcher.dispose();
+      dispatcher.dispose();
     });
 
     test('AppLifecycleState transitions through all states', () {
@@ -291,7 +306,6 @@ void testMain() {
     });
 
     test('disposes all its views', () {
-      final EnginePlatformDispatcher dispatcher = EnginePlatformDispatcher();
       final EngineFlutterView view1 =
           EngineFlutterView(dispatcher, createDomHTMLDivElement());
       final EngineFlutterView view2 =
@@ -315,7 +329,6 @@ void testMain() {
     });
 
     test('connects view disposal to metrics changed event', () {
-      final EnginePlatformDispatcher dispatcher = EnginePlatformDispatcher();
       final EngineFlutterView view1 =
           EngineFlutterView(dispatcher, createDomHTMLDivElement());
       final EngineFlutterView view2 =
@@ -343,7 +356,6 @@ void testMain() {
     });
 
     test('disconnects view disposal event on dispose', () {
-      final EnginePlatformDispatcher dispatcher = EnginePlatformDispatcher();
       final EngineFlutterView view1 =
           EngineFlutterView(dispatcher, createDomHTMLDivElement());
 
@@ -360,6 +372,50 @@ void testMain() {
 
       expect(onMetricsChangedCalled, isFalse);
       expect(view1.isDisposed, isTrue);
+    });
+
+    test('invokeOnViewFocusChange calls onViewFocusChange', () {
+      final List<ui.ViewFocusEvent> dispatchedViewFocusEvents = <ui.ViewFocusEvent>[];
+      const ui.ViewFocusEvent viewFocusEvent = ui.ViewFocusEvent(
+        viewId: 0,
+        state: ui.ViewFocusState.focused,
+        direction: ui.ViewFocusDirection.undefined,
+      );
+
+      dispatcher.onViewFocusChange = dispatchedViewFocusEvents.add;
+      dispatcher.invokeOnViewFocusChange(viewFocusEvent);
+
+      expect(dispatchedViewFocusEvents, hasLength(1));
+      expect(dispatchedViewFocusEvents.single, viewFocusEvent);
+    });
+
+    test('invokeOnViewFocusChange preserves the zone', () {
+      final Zone zone1 = Zone.current.fork();
+      final Zone zone2 = Zone.current.fork();
+      const ui.ViewFocusEvent viewFocusEvent = ui.ViewFocusEvent(
+        viewId: 0,
+        state: ui.ViewFocusState.focused,
+        direction: ui.ViewFocusDirection.undefined,
+      );
+
+      zone1.runGuarded(() {
+        dispatcher.onViewFocusChange = (_) {
+          expect(Zone.current, zone1);
+        };
+      });
+
+      zone2.runGuarded(() {
+        dispatcher.invokeOnViewFocusChange(viewFocusEvent);
+      });
+    });
+
+    test('appends an accesibility placeholder', () {
+      expect(dispatcher.accessibilityPlaceholder.isConnected, isTrue);
+    });
+
+    test('removes the accesibility placeholder', () {
+      dispatcher.dispose();
+      expect(dispatcher.accessibilityPlaceholder.isConnected, isFalse);
     });
   });
 }
