@@ -15,6 +15,8 @@
 
 namespace flutter {
 
+typedef std::list<const FlutterKeyEvent&> EventList;
+
 enum class EventType {
   kUp,
   kDown,
@@ -63,28 +65,31 @@ FlutterKeyEventType ToEmbedderApiType(EventType type);
  */
 class FlutterKeyCallbackGuard {
  public:
-  FlutterKeyCallbackGuard(void* content);
+  using SendKeyEvent =
+      std::function<void(const FlutterKeyEvent& event, void* response_context)>;
+
+  FlutterKeyCallbackGuard();
 
   ~FlutterKeyCallbackGuard();
 
-  /**
-   * Mark that this guard has been used to send a primary event a return the
-   * stored response ID.
-   */
-  [[nodiscard]] void* MarkSentPrimaryEvent();
+  EventList* GetEventList(bool is_target_event);
 
-  void MarkSentSynthesizedEvent();
-
-  [[nodiscard]] void* Release();
-
-  bool sent_any_events() const {
-    return sent_primary_event_ || sent_synthesized_events_;
+  // Returns true if any events have been sent.
+  template <typename T>
+  bool SendEvent(SendKeyEvent send_event, std::unique_ptr<T>& response_context) {
+    GetResponseContext get_response_context = [&response_context]() mutable {
+      return reinterpret_cast<void*>(response_context.release());
+    };
+    return SendEventImpl(std::move(send_event), std::move(get_response_context));
   }
 
  private:
-  void* content_;
-  bool sent_primary_event_ = false;
-  bool sent_synthesized_events_ = false;
+  using GetResponseContext = std::function<void*()>;
+
+  void SendEventImpl(SendKeyEvent send_event, GetResponseContext get_response_context);
+
+  EventList target_key_events_;
+  EventList other_key_events_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(FlutterKeyCallbackGuard);
 };
@@ -129,7 +134,7 @@ class PressStateTracker : private PhysicallyIndexed {
  public:
   std::unordered_map<uint64_t, uint64_t> GetPressedState();
 
-  void RequireTextKeyState(std::vector<FlutterKeyEvent>* output,
+  void RequireTextKeyState(EventList* output,
                            NativeEvent& source_event,
                            std::optional<bool> require_pressed_before,
                            bool require_pressed_after);
@@ -155,7 +160,7 @@ class ModifierStateTracker : private LogicallyIndexed {
   std::unordered_map<uint64_t, uint64_t> GetPressedState();
 
   void RequireModifierKeyState(
-      std::vector<FlutterKeyEvent>* output,
+      EventList* output,
       NativeEvent& source_event,
       std::optional<bool> require_pressed_before_primary,
       std::optional<bool> require_pressed_after_primary);
@@ -182,12 +187,18 @@ class ModifierPairStateTracker : private LogicallyIndexed {
 
   std::unordered_map<uint64_t, uint64_t> GetPressedState();
 
-  void RequireEventState(std::vector<FlutterKeyEvent>* output,
+  void RequireEventState(EventList* output,
                          NativeEvent& source_event,
                          std::optional<bool> require_pressed_before,
                          std::optional<bool> require_pressed_after);
 
-  void RequireFlagState(std::vector<FlutterKeyEvent>* output,
+  void RequireEventFlagState(EventList* output,
+                         NativeEvent& source_event,
+                         uint64_t flag,
+                         std::optional<bool> require_pressed_before,
+                         std::optional<bool> require_pressed_after);
+
+  void RequireFlagState(EventList* output,
                         uint64_t flag,
                         double timestamp,
                         bool require_pressed);
@@ -198,7 +209,7 @@ class ModifierPairStateTracker : private LogicallyIndexed {
 
   uint64_t PhysicalKeyFromRecord(uint64_t logical_key);
 
-  void RequireKeyState(std::vector<FlutterKeyEvent>* output,
+  void RequireKeyState(EventList* output,
                        StateMap::iterator current,
                        double timestamp,
                        bool require_pressed);
@@ -218,12 +229,12 @@ class ModifierPairStateTracker : private LogicallyIndexed {
 // or off. These keys must be uniquely indexed by their logical keys.
 class LockStateTracker : private LogicallyIndexed {
  public:
-  void RequireState(std::vector<FlutterKeyEvent>* output,
+  void RequireState(EventList* output,
                     NativeEvent& source_event,
                     std::optional<LockStateGroup> require_primary_state,
                     LockStateGroup require_after_cleanup);
 
-  void RequireState(std::vector<FlutterKeyEvent>* output,
+  void RequireState(EventList* output,
                     uint64_t logical_key,
                     double timestamp,
                     LockStateGroup require_state);

@@ -351,6 +351,50 @@ class EmbedderResponder {
     }
   }
 
+  void SyncModifiers(guint state, NativeEventLinux) {
+    std::vector<FlutterKeyEvent> output_target_key;
+    std::vector<FlutterKeyEvent> output_other_keys;
+
+    NativeEventLinux source_event(event, specified_logical_key);
+    const uint64_t logical_key = source_event.logical_key();
+
+    bool target_key_found = false;
+    for (auto& [lock_bit, checked_key] : _lock_bit_to_checked_keys) {
+      uint64_t target_logical_key = checked_key.primary_logical_key;
+      const bool is_for_this_event =
+          target_logical_key == source_event.logical_key();
+      target_key_found = target_key_found || is_for_this_event;
+      SynchronizeLock(
+          is_for_this_event ? &output_target_key : &output_other_keys,
+          source_event, event->state & lock_bit, target_logical_key,
+          checked_key.is_caps_lock, guard);
+    }
+
+    const uint64_t physical_key_from_event = event_to_physical_key(event);
+    const uint64_t physical_key = corrected_modifier_physical_key(
+        _modifier_bit_to_checked_keys, physical_key_from_event, logical_key);
+    const bool is_down_event = event->is_press;
+
+    // Update pressing states
+    for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
+      uint64_t target_logical_key = checked_key.primary_logical_key;
+      const bool is_for_this_event =
+          target_logical_key == source_event.logical_key();
+      target_key_found = target_key_found || is_for_this_event;
+      bool event_state_is_on = event->state & modifier_bit;
+      if (is_for_this_event) {
+        modifier_state_tracker_.RequireEventState(
+            &output_target_key, source_event,
+            /*require_pressed_before=*/std::nullopt,
+            /*require_pressed_after=*/event_state_is_on);
+      }
+      modifier_state_tracker_.RequireFlagState(&output_other_keys, modifier_bit,
+                                               source_event.timestamp(),
+                                               event_state_is_on);
+    }
+  }
+
+
   void HandleEvent(FlKeyEvent* event,
                    uint64_t specified_logical_key,
                    FlKeyResponderAsyncCallback callback,
@@ -436,10 +480,12 @@ class EmbedderResponder {
     NativeEventLinux source_event(event, specified_logical_key);
     const uint64_t logical_key = source_event.logical_key();
 
+    bool target_key_found = false;
     for (auto& [lock_bit, checked_key] : _lock_bit_to_checked_keys) {
       uint64_t target_logical_key = checked_key.primary_logical_key;
       const bool is_for_this_event =
           target_logical_key == source_event.logical_key();
+      target_key_found = target_key_found || is_for_this_event;
       SynchronizeLock(
           is_for_this_event ? &output_target_key : &output_other_keys,
           source_event, event->state & lock_bit, target_logical_key,
@@ -453,52 +499,35 @@ class EmbedderResponder {
 
     // Update pressing states
     for (auto& [modifier_bit, checked_key] : _modifier_bit_to_checked_keys) {
-      SynchronizePressedState(modifier_bit, event->state,
-                              source_event.timestamp(), &checked_key, guard);
-    }
-
-    // Construct the real event
-    const std::optional<uint64_t> last_logical_record =
-        lookup_hash_table(_pressing_records, physical_key);
-
-    FlutterKeyEvent out_event;
-    out_event.struct_size = sizeof(out_event);
-    out_event.timestamp = source_event.timestamp();
-    out_event.physical = physical_key;
-    out_event.logical = last_logical_record.value_or(logical_key);
-    out_event.character = nullptr;
-    out_event.synthesized = false;
-
-    g_autofree char* character_to_free = nullptr;
-    if (is_down_event) {
-      if (last_logical_record.has_value()) {
-        // A key has been pressed that has the exact physical key as a currently
-        // pressed one. This can happen during repeated events.
-        out_event.type = kFlutterKeyEventTypeRepeat;
-      } else {
-        out_event.type = kFlutterKeyEventTypeDown;
+      uint64_t target_logical_key = checked_key.primary_logical_key;
+      const bool is_for_this_event =
+          target_logical_key == source_event.logical_key();
+      target_key_found = target_key_found || is_for_this_event;
+      bool event_state_is_on = event->state & modifier_bit;
+      if (is_for_this_event) {
+        modifier_state_tracker_.RequireEventState(
+            &output_target_key, source_event,
+            /*require_pressed_before=*/std::nullopt,
+            /*require_pressed_after=*/event_state_is_on);
       }
-      character_to_free = event_to_character(event);  // Might be null
-      out_event.character = character_to_free;
-    } else {  // is_down_event false
-      if (!last_logical_record.has_value()) {
-        // The physical key has been released before. It might indicate a missed
-        // event due to loss of focus, or multiple keyboards pressed keys with
-        // the same physical key. Ignore the up event.
-        return;
-      } else {
-        out_event.type = kFlutterKeyEventTypeUp;
-      }
+      modifier_state_tracker_.RequireFlagState(&output_other_keys, modifier_bit,
+                                               source_event.timestamp(),
+                                               event_state_is_on);
     }
 
-    if (out_event.type != kFlutterKeyEventTypeRepeat) {
-      UpdatePressingState(physical_key, is_down_event ? logical_key : 0);
+    if (!target_key_found) {
+      press_state_tracker_.RequireTextKeyState(
+          &output_target_key, source_event,
+          /*require_pressed_before=*/std::nullopt,
+          /*require_pressed_after=*/event.is_press());
     }
-    PossiblyUpdateLockBit(logical_key, is_down_event);
-    if (is_down_event) {
-      UpdateMappingRecord(physical_key, logical_key);
+
+    for (FlutterKeyEvent& event : out_other_keys) {
+      [self sendEvent:event guard:guard];
     }
-    SendEvent(&out_event, guard);
+    for (FlutterKeyEvent& event : out_target_key) {
+      [self sendEvent:event guard:guard];
+    }
   }
 
   // Infer the logic type of CapsLock on the current platform if applicable.
@@ -538,38 +567,6 @@ class EmbedderResponder {
     } else {
       // This shouldn't happen according to our theory. Let's just not update
       // the inferrence.
-    }
-  }
-
-  // Update the lock record.
-  //
-  // If `is_down` is false, this function is a no-op.  Otherwise, this function
-  // finds the lock bit corresponding to `physical_key`, and flips its bit.
-  void PossiblyUpdateLockBit(uint64_t logical_key, bool is_down) {
-    if (!is_down) {
-      return;
-    }
-    auto found_mode_bit = _logical_key_to_lock_bit.find(logical_key);
-    if (found_mode_bit != _logical_key_to_lock_bit.end()) {
-      _lock_records ^= found_mode_bit->second;
-    }
-  }
-
-  // Update the pressing record.
-  //
-  // If `logical_key` is 0, the record will be set as "released".  Otherwise,
-  // the record will be set as "pressed" with this logical key.  This function
-  // asserts that the key is pressed if the caller asked to release, and vice
-  // versa.
-  void UpdatePressingState(uint64_t physical_key, uint64_t logical_key) {
-    if (logical_key != 0) {
-      FML_DCHECK(
-          !lookup_hash_table(_pressing_records, physical_key).has_value());
-      _pressing_records[physical_key] = logical_key;
-    } else {
-      FML_DCHECK(
-          lookup_hash_table(_pressing_records, physical_key).has_value());
-      _pressing_records.erase(physical_key);
     }
   }
 
