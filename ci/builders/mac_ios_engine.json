@@ -7,15 +7,18 @@
                 "cpu=x86"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_debug_sim",
                 "--ios",
                 "--runtime-mode",
                 "debug",
                 "--simulator",
                 "--no-lto"
             ],
-            "name": "ios_debug_sim",
+            "name": "ci/ios_debug_sim",
+            "description": "Produces debug mode artifacts to target the x64 iOS simulator.",
             "ninja": {
-                "config": "ios_debug_sim"
+                "config": "ci/ios_debug_sim"
             },
             "properties": {
                 "$flutter/osx_sdk": {
@@ -29,6 +32,8 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_debug_sim_arm64",
                 "--ios",
                 "--runtime-mode",
                 "debug",
@@ -36,9 +41,10 @@
                 "--simulator-cpu=arm64",
                 "--no-lto"
             ],
-            "name": "ios_debug_sim_arm64",
+            "name": "ci/ios_debug_sim_arm64",
+            "description": "Produces debug mode artifacts to target the arm64 iOS simulator.",
             "ninja": {
-                "config": "ios_debug_sim_arm64"
+                "config": "ci/ios_debug_sim_arm64"
             },
             "properties": {
                 "$flutter/osx_sdk": {
@@ -52,13 +58,16 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_debug",
                 "--ios",
                 "--runtime-mode",
                 "debug"
             ],
-            "name": "ios_debug",
+            "name": "ci/ios_debug",
+            "description": "Produces debug mode artifacts to target iOS.",
             "ninja": {
-                "config": "ios_debug",
+                "config": "ci/ios_debug",
                 "targets": [
                     "flutter/shell/platform/darwin/ios:flutter_framework"
                 ]
@@ -75,13 +84,16 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_profile",
                 "--ios",
                 "--runtime-mode",
                 "profile"
             ],
-            "name": "ios_profile",
+            "name": "ci/ios_profile",
+            "description": "Produces profile mode artifacts to target iOS.",
             "ninja": {
-                "config": "ios_profile",
+                "config": "ci/ios_profile",
                 "targets": [
                     "flutter/shell/platform/darwin/ios:flutter_framework",
                     "flutter/lib/snapshot:generate_snapshot_bin"
@@ -99,13 +111,16 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_release",
                 "--ios",
                 "--runtime-mode",
                 "release"
             ],
-            "name": "ios_release",
+            "name": "ci/ios_release",
+            "description": "Produces release mode artifacts to target iOS.",
             "ninja": {
-                "config": "ios_release",
+                "config": "ci/ios_release",
                 "targets": [
                     "flutter/shell/platform/darwin/ios:flutter_framework",
                     "flutter/lib/snapshot:generate_snapshot_bin"
@@ -124,6 +139,8 @@
                 "cpu=x86"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_debug_sim_extension_safe",
                 "--ios",
                 "--runtime-mode",
                 "debug",
@@ -131,9 +148,10 @@
                 "--no-lto",
                 "--darwin-extension-safe"
             ],
-            "name": "ios_debug_sim_extension_safe",
+            "name": "ci/ios_debug_sim_extension_safe",
+            "description": "Produces extension safe debug mode artifacts to target the x64 iOS simulator.",
             "ninja": {
-                "config": "ios_debug_sim_extension_safe"
+                "config": "ci/ios_debug_sim_extension_safe"
             },
             "properties": {
                 "$flutter/osx_sdk": {
@@ -147,6 +165,8 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_debug_sim_arm64_extension_safe",
                 "--ios",
                 "--runtime-mode",
                 "debug",
@@ -155,9 +175,10 @@
                 "--no-lto",
                 "--darwin-extension-safe"
             ],
-            "name": "ios_debug_sim_arm64_extension_safe",
+            "name": "ci/ios_debug_sim_arm64_extension_safe",
+            "description": "Produces extension safe debug mode artifacts to target the arm64 iOS simulator.",
             "ninja": {
-                "config": "ios_debug_sim_arm64_extension_safe"
+                "config": "ci/ios_debug_sim_arm64_extension_safe"
             },
             "properties": {
                 "$flutter/osx_sdk": {
@@ -171,14 +192,17 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_debug_extension_safe",
                 "--ios",
                 "--runtime-mode",
                 "debug",
                 "--darwin-extension-safe"
             ],
-            "name": "ios_debug_extension_safe",
+            "name": "ci/ios_debug_extension_safe",
+            "description": "Produces extension safe debug mode artifacts to target iOS.",
             "ninja": {
-                "config": "ios_debug_extension_safe",
+                "config": "ci/ios_debug_extension_safe",
                 "targets": [
                     "flutter/shell/platform/darwin/ios:flutter_framework"
                 ]
@@ -195,14 +219,17 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_profile_extension_safe",
                 "--ios",
                 "--runtime-mode",
                 "profile",
                 "--darwin-extension-safe"
             ],
-            "name": "ios_profile_extension_safe",
+            "name": "ci/ios_profile_extension_safe",
+            "description": "Produces extension safe profile mode artifacts to target iOS.",
             "ninja": {
-                "config": "ios_profile_extension_safe",
+                "config": "ci/ios_profile_extension_safe",
                 "targets": [
                     "flutter/shell/platform/darwin/ios:flutter_framework",
                     "flutter/lib/snapshot:generate_snapshot_bin"
@@ -220,14 +247,17 @@
                 "os=Mac-13"
             ],
             "gn": [
+                "--target-dir",
+                "ci/ios_release_extension_safe",
                 "--ios",
                 "--runtime-mode",
                 "release",
                 "--darwin-extension-safe"
             ],
-            "name": "ios_release_extension_safe",
+            "name": "ci/ios_release_extension_safe",
+            "description": "Produces extension safe release mode artifacts to target iOS.",
             "ninja": {
-                "config": "ios_release_extension_safe",
+                "config": "ci/ios_release_extension_safe",
                 "targets": [
                     "flutter/shell/platform/darwin/ios:flutter_framework",
                     "flutter/lib/snapshot:generate_snapshot_bin"
@@ -248,11 +278,11 @@
                     "--dst",
                     "out/debug",
                     "--arm64-out-dir",
-                    "out/ios_debug",
+                    "out/ci/ios_debug",
                     "--simulator-x64-out-dir",
-                    "out/ios_debug_sim",
+                    "out/ci/ios_debug_sim",
                     "--simulator-arm64-out-dir",
-                    "out/ios_debug_sim_arm64"
+                    "out/ci/ios_debug_sim_arm64"
                 ],
                 "script": "flutter/sky/tools/create_full_ios_framework.py",
                 "language": "python3"
@@ -263,11 +293,11 @@
                     "--dst",
                     "out/profile",
                     "--arm64-out-dir",
-                    "out/ios_profile",
+                    "out/ci/ios_profile",
                     "--simulator-x64-out-dir",
-                    "out/ios_debug_sim",
+                    "out/ci/ios_debug_sim",
                     "--simulator-arm64-out-dir",
-                    "out/ios_debug_sim_arm64"
+                    "out/ci/ios_debug_sim_arm64"
                 ],
                 "script": "flutter/sky/tools/create_full_ios_framework.py",
                 "language": "python3"
@@ -278,11 +308,11 @@
                     "--dst",
                     "out/release",
                     "--arm64-out-dir",
-                    "out/ios_release",
+                    "out/ci/ios_release",
                     "--simulator-x64-out-dir",
-                    "out/ios_debug_sim",
+                    "out/ci/ios_debug_sim",
                     "--simulator-arm64-out-dir",
-                    "out/ios_debug_sim_arm64",
+                    "out/ci/ios_debug_sim_arm64",
                     "--dsym",
                     "--strip"
                 ],
@@ -295,7 +325,7 @@
                     "--dst",
                     "out/release",
                     "--arm64-out-dir",
-                    "out/ios_release"
+                    "out/ci/ios_release"
                 ],
                 "script": "flutter/sky/tools/create_macos_gen_snapshots.py",
                 "language": "python3"
@@ -303,7 +333,8 @@
             {
                 "name": "Verify-export-symbols-release-binaries",
                 "parameters": [
-                    "src/out"
+                    "src/out/ci",
+                    "src/flutter/buildtools"
                 ],
                 "script": "flutter/testing/symbols/verify_exported.dart",
                 "language": "dart"

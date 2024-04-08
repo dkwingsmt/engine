@@ -30,7 +30,7 @@ GeometryResult PointFieldGeometry::GetPositionBuffer(
   return {
       .type = PrimitiveType::kTriangleStrip,
       .vertex_buffer = vtx_builder->CreateVertexBuffer(host_buffer),
-      .transform = pass.GetOrthographicTransform() * entity.GetTransform(),
+      .transform = entity.GetShaderTransform(pass),
   };
 }
 
@@ -57,7 +57,7 @@ GeometryResult PointFieldGeometry::GetPositionUVBuffer(
   return {
       .type = PrimitiveType::kTriangleStrip,
       .vertex_buffer = uv_vtx_builder.CreateVertexBuffer(host_buffer),
-      .transform = pass.GetOrthographicTransform() * entity.GetTransform(),
+      .transform = entity.GetShaderTransform(pass),
   };
 }
 
@@ -216,14 +216,19 @@ GeometryResult PointFieldGeometry::GetPositionBufferGPU(
   if (!compute_pass->EncodeCommands()) {
     return {};
   }
-  renderer.RecordCommandBuffer(std::move(cmd_buffer));
+  if (!renderer.GetContext()
+           ->GetCommandQueue()
+           ->Submit({std::move(cmd_buffer)})
+           .ok()) {
+    return {};
+  }
 
   return {
       .type = PrimitiveType::kTriangle,
       .vertex_buffer = {.vertex_buffer = std::move(output),
                         .vertex_count = total,
                         .index_type = IndexType::kNone},
-      .transform = pass.GetOrthographicTransform() * entity.GetTransform(),
+      .transform = entity.GetShaderTransform(pass),
   };
 }
 
